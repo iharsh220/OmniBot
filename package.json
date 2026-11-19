@@ -1,0 +1,17 @@
+{
+  "name": "omnichat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified YouTube + Kick live chat & stats overlay for OBS (Node.js + plain HTML/CSS/JS, zero dependencies)",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "localtunnel": "^2.0.2"
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OmniChat — Login</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/css/widget.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body class="login-page">
+  <div class="login-bg"></div>
+  <main class="login-wrap">
+    <section class="login-hero">
+      <div class="brand big"><img src="/favicon.svg" alt="" /><div><strong>OmniChat</strong><span>Studio</span></div></div>
+      <h1>YouTube + Kick chat.<br /><em>One beautiful overlay.</em></h1>
+      <p>Connect your channels, pick one of 10 themes or design your own, and drop a single URL into OBS, Streamlabs or any transparent chat overlay app.</p>
+      <ul class="perks">
+        <li>💬 Combined live chat from YouTube &amp; Kick</li>
+        <li>📊 Live viewers, subscribers &amp; followers</li>
+        <li>🎨 10 themes + full custom design, transparent backgrounds</li>
+        <li>🔗 Saved widget URLs that update live when you edit them</li>
+      </ul>
+    </section>
+    <section class="login-card">
+      <h2>Sign in</h2>
+      <p class="muted">Login with either platform. You can connect the other one later from your dashboard.</p>
+      <div class="login-error" id="error" hidden></div>
+      <a class="login-btn yt" id="btn-youtube" href="/auth/youtube">
+        <svg viewBox="0 0 24 24"><rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#ff0033"/><path d="M10 9v6l5.2-3z" fill="#fff"/></svg>
+        Continue with YouTube
+      </a>
+      <a class="login-btn kick" id="btn-kick" href="/auth/kick">
+        <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#0b0b0b"/><path d="M6 5h4v4h2V7h2V5h4v6h-2v2h2v6h-4v-2h-2v-2h-2v4H6z" fill="#53fc18"/></svg>
+        Continue with Kick
+      </a>
+      <p class="tiny muted">We only request read-only access to your channel. Tokens are stored encrypted on this server.</p>
+      <div class="login-demo">
+        <div class="tiny muted">Live preview</div>
+        <div class="login-demo-box"><div id="demo"></div></div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>
