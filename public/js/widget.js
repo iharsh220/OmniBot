@@ -9,12 +9,14 @@ const id = (location.pathname.match(/^\/w\/([\w-]+)/) || [])[1];
 async function main() {
   let type = params.get('type') === 'stats' ? 'stats' : 'chat';
   let base = DEFAULTS;
+  let version = null;
   if (id) {
     const r = await fetch(`/api/w/${id}`);
     if (!r.ok) throw new Error('Widget not found — copy the URL again from your OmniChat dashboard.');
     const cfg = await r.json();
     type = cfg.type;
     base = { ...DEFAULTS, ...cfg.settings };
+    version = cfg.v ?? null;
   }
   // URL query params (optional) override the saved settings.
   const settingsFor = (b) => decodeSettings(location.search, b);
@@ -29,13 +31,13 @@ async function main() {
     });
     return;
   }
-  connectLive(`/api/w/${id}/events`, {
+  connectLive(`/api/w/${id}/poll`, {
     onHistory: (list) => view.setHistory?.(list),
     onChat: (m) => view.add?.(m),
     onDelete: (mid) => view.remove?.(mid),
     onState: (st) => view.setState?.(st),
     onSettings: ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings })),
-  });
+  }, { v: version, interval: type === 'stats' ? 10_000 : 4_000 });
 }
 main().catch((e) => {
   const d = document.createElement('div');

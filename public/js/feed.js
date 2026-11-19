@@ -1,21 +1,52 @@
-// Live feed (Server-Sent Events from the Node server) + demo generator for previews.
+// Live feed by polling the API (works on Netlify Functions) + demo generator for previews.
+//
+// connectLive(url, handlers, { v, interval }) polls `url?c=<cursor>&v=<version>&l=<logCursor>`.
+// Handlers: onHistory(list) · onChat(msg) · onDelete(id) · onState(state, only when changed)
+//           onSettings({settings}) · onLog(row) · onStatus(ok)
+export function connectLive(url, handlers = {}, opts = {}) {
+  const h = handlers;
+  let cursor = null;
+  let logCursor = null;
+  let v = opts.v ?? null;
+  let lastState = '';
+  let fails = 0;
+  let stopped = false;
+  let timer = null;
+  const every = () => (document.hidden ? 15_000 : opts.interval || 4_000);
 
-export function connectLive(url, { onState, onChat, onDelete, onHistory, onStatus, onSettings, onLog } = {}) {
-  let es;
-  let closed = false;
-  const open = () => {
-    es = new EventSource(url);
-    es.onopen = () => onStatus?.(true);
-    es.onerror = () => onStatus?.(false);
-    es.addEventListener('state', (e) => onState?.(JSON.parse(e.data)));
-    es.addEventListener('history', (e) => onHistory?.(JSON.parse(e.data)));
-    es.addEventListener('chat', (e) => onChat?.(JSON.parse(e.data)));
-    es.addEventListener('delete', (e) => onDelete?.(JSON.parse(e.data).id));
-    es.addEventListener('settings', (e) => onSettings?.(JSON.parse(e.data)));
-    es.addEventListener('log', (e) => onLog?.(JSON.parse(e.data)));
-  };
-  open();
-  return { close() { closed = true; es?.close(); }, get closed() { return closed; } };
+  async function poll() {
+    if (stopped) return;
+    try {
+      const q = new URLSearchParams();
+      if (cursor !== null) q.set('c', cursor);
+      if (logCursor !== null) q.set('l', logCursor);
+      if (v !== null) q.set('v', v);
+      const r = await fetch(`${url}?${q}`, { credentials: 'same-origin', cache: 'no-store' });
+      if (r.status === 401) { h.onUnauthorized?.(); return; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      fails = 0;
+      h.onStatus?.(true);
+      if (d.history) h.onHistory?.(d.history);
+      for (const e of d.events || []) (e.t === 'chat' ? h.onChat?.(e.msg) : h.onDelete?.(e.id));
+      cursor = d.cursor ?? cursor;
+      if (d.state) {
+        const s = JSON.stringify(d.state);
+        if (s !== lastState) { lastState = s; h.onState?.(d.state); }
+      }
+      if (d.settings && v !== null && d.v !== v) h.onSettings?.({ settings: d.settings });
+      if (d.v !== undefined) v = d.v;
+      for (const l of d.logs || []) h.onLog?.(l);
+      if (d.logCursor !== undefined) logCursor = d.logCursor;
+    } catch {
+      fails += 1;
+      h.onStatus?.(false);
+    }
+    if (!stopped) timer = setTimeout(poll, fails ? Math.min(30_000, 2_000 * 2 ** fails) : every());
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !stopped) { clearTimeout(timer); poll(); } });
+  poll();
+  return { close() { stopped = true; clearTimeout(timer); } };
 }
 
 const NAMES = ['PixelPanda', 'NightOwl_42', 'Ravi Kumar', 'GG_Warrior', 'sneha.codes', 'TurboTaco', 'xXShadowXx', 'Lofi Lover', 'AmanPlays', 'CaptainChai', 'zara_streams', 'MemeLord99', 'Neha', 'ByteBandit', 'FrostFire'];

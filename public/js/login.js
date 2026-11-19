@@ -13,6 +13,9 @@ if (err) {
   history.replaceState(null, '', '/login');
 }
 
+// Already signed in? Go straight to the dashboard.
+fetch('/api/me', { credentials: 'same-origin' }).then((r) => { if (r.ok) location.replace('/'); }).catch(() => {});
+
 fetch('/api/providers').then((r) => r.json()).then((p) => {
   for (const k of ['youtube', 'kick']) if (!p[k]) {
     const b = document.getElementById('btn-' + k);

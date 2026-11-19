@@ -1005,7 +1005,8 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   if (params.get('error')) { toast(params.get('error'), 'err'); history.replaceState(null, '', '/' + location.hash); }
 
-  connectLive('/api/events', {
+  connectLive('/api/poll', {
+    onUnauthorized: () => location.replace('/login'),
     onStatus: (ok) => { serverOk = ok; renderStatus(); },
     onState: (st) => {
       liveState = st;

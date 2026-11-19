@@ -1,310 +1,261 @@
-// OAuth login (Google/YouTube + Kick), sessions, account linking and token refresh.
+// OAuth (Google/YouTube + Kick), sessions, users/accounts, token refresh, revoke & delete.
 import crypto from 'node:crypto';
-import { config } from './config.js';
-import { db, encrypt, decrypt, randomId, sha256 } from './db.js';
-import { log } from './logger.js';
+import { config, isHttps, tfetch } from './config.js';
+import { encrypt, decrypt, randomId, randomToken, sha256, safeEqual } from './crypto.js';
+import { parseCookies, cookie } from './http.js';
+import * as db from './store.js';
+import { log } from './feed.js';
 
-const secureCookie = config.appUrl.startsWith('https://');
-// __Host- prefix (https only): cookie is locked to this exact host, Secure and Path=/.
-const SESSION_COOKIE = secureCookie ? '__Host-oc_session' : 'oc_session';
-const STATE_COOKIE = secureCookie ? '__Host-oc_oauth' : 'oc_oauth';
 const SESSION_TTL = 30 * 86_400_000;
 const STATE_TTL = 10 * 60_000;
-
-export const providersConfigured = () => ({
-  youtube: !!(config.google.clientId && config.google.clientSecret),
-  kick: !!(config.kick.clientId && config.kick.clientSecret),
-});
+// __Host- prefix (https only): cookie locked to this exact host, Secure, Path=/.
+const SESSION = () => (isHttps() ? '__Host-oc_session' : 'oc_session');
+const STATE = () => (isHttps() ? '__Host-oc_oauth' : 'oc_oauth');
 
 export const redirectUri = (p) => `${config.appUrl}/auth/${p}/callback`;
 
-// ── Cookies & sessions ─────────────────────────────────────────────────
-export function parseCookies(req) {
-  const out = {};
-  for (const part of (req.headers.cookie || '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+// ── Users ──
+const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: {}, widgets: [], sessions: [] });
+export const getUser = (uid) => db.get(`user/${uid}`);
+export const updateUser = (uid, fn) => db.update(`user/${uid}`, fn, null);
+
+// ── Sessions ──
+export async function createSession(uid) {
+  const token = randomToken();
+  const hash = sha256(token);
+  const expiresAt = Date.now() + SESSION_TTL;
+  await db.set(`session/${hash}`, { uid, expiresAt });
+  await updateUser(uid, (u) => {
+    if (!u) return undefined;
+    u.sessions = [...(u.sessions || []).filter((s) => s.expiresAt > Date.now()), { hash, expiresAt }].slice(-20);
+    return u;
+  });
+  return cookie(SESSION(), token, SESSION_TTL / 1000);
+}
+
+export async function currentUser(req) {
+  if (req._user !== undefined) return req._user;
+  const t = parseCookies(req)[SESSION()];
+  let user = null;
+  if (t && t.length < 200) {
+    const s = await db.get(`session/${sha256(t)}`);
+    if (s && s.expiresAt > Date.now()) user = (await getUser(s.uid)) || null;
   }
-  return out;
+  req._user = user;
+  return user;
 }
 
-function cookie(name, value, maxAgeSec) {
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureCookie ? '; Secure' : ''}`;
-}
-/** Append a Set-Cookie header without overwriting earlier ones. */
-export function addCookie(res, value) {
-  const prev = res.getHeader('Set-Cookie');
-  res.setHeader('Set-Cookie', prev ? [].concat(prev, value) : value);
-}
-
-export function createSession(res, userId) {
-  const token = crypto.randomBytes(32).toString('base64url');
-  const now = Date.now();
-  db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(sha256(token), userId, now, now + SESSION_TTL);
-  addCookie(res, cookie(SESSION_COOKIE, token, SESSION_TTL / 1000));
+export async function destroySession(req) {
+  const t = parseCookies(req)[SESSION()];
+  if (t) {
+    const hash = sha256(t);
+    const s = await db.get(`session/${hash}`);
+    await db.del(`session/${hash}`);
+    if (s?.uid) await updateUser(s.uid, (u) => (u ? { ...u, sessions: (u.sessions || []).filter((x) => x.hash !== hash) } : undefined));
+  }
+  return cookie(SESSION(), '', 0);
 }
 
-export function destroySession(req, res) {
-  const t = parseCookies(req)[SESSION_COOKIE];
-  if (t) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(t));
-  addCookie(res, cookie(SESSION_COOKIE, '', 0));
+export async function destroyAllSessions(uid) {
+  const u = await getUser(uid);
+  await Promise.all((u?.sessions || []).map((s) => db.del(`session/${s.hash}`)));
+  await updateUser(uid, (x) => (x ? { ...x, sessions: [] } : undefined));
+  return cookie(SESSION(), '', 0);
 }
+export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt > Date.now()).length;
 
-/** Sign out everywhere: removes every session of this user. */
-export function destroyAllSessions(userId, res) {
-  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
-  if (res) addCookie(res, cookie(SESSION_COOKIE, '', 0));
-}
-
-export const sessionCount = (userId) =>
-  db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND expires_at > ?').get(userId, Date.now()).n;
-
-export function currentUser(req) {
-  const t = parseCookies(req)[SESSION_COOKIE];
-  if (!t) return null;
-  const row = db.prepare(
-    'SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?',
-  ).get(sha256(t), Date.now());
-  return row || null;
-}
-
-// ── OAuth state (server memory + bound to this browser by a cookie → blocks login CSRF) ──
-const pending = new Map();
-function newState(data) {
-  const state = randomId(24);
-  pending.set(state, { ...data, at: Date.now() });
-  for (const [k, v] of pending) if (Date.now() - v.at > STATE_TTL) pending.delete(k);
-  return state;
-}
-function takeState(state, cookieState) {
-  if (!state || !cookieState) return null;
-  const a = Buffer.from(String(state));
-  const b = Buffer.from(String(cookieState));
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  const v = pending.get(state);
-  pending.delete(state);
-  return v && Date.now() - v.at < STATE_TTL ? v : null;
-}
-export const stateCookieName = STATE_COOKIE;
-export const setStateCookie = (res, state) => addCookie(res, cookie(STATE_COOKIE, state, STATE_TTL / 1000));
-export const clearStateCookie = (res) => addCookie(res, cookie(STATE_COOKIE, '', 0));
-
-// ── Authorize URLs ─────────────────────────────────────────────────────
-export function authorizeUrl(provider, linkUserId) {
+// ── OAuth: state + PKCE verifier in an encrypted short-lived cookie (blocks login CSRF) ──
+export function authorize(provider, linkUid) {
+  const state = randomToken();
+  const payload = { state, provider, linkUid: linkUid || null, exp: Date.now() + STATE_TTL };
+  let url;
   if (provider === 'youtube') {
-    const state = newState({ provider, linkUserId });
-    const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-    u.search = new URLSearchParams({
-      client_id: config.google.clientId,
-      redirect_uri: redirectUri('youtube'),
-      response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/youtube.readonly',
-      access_type: 'offline',
-      prompt: 'consent select_account',
-      state,
+    url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    url.search = new URLSearchParams({
+      client_id: config.google.clientId, redirect_uri: redirectUri('youtube'), response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/youtube.readonly', access_type: 'offline', prompt: 'consent select_account', state,
     });
-    return { url: u.toString(), state };
-  }
-  if (provider === 'kick') {
-    const verifier = crypto.randomBytes(32).toString('base64url');
-    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-    const state = newState({ provider, linkUserId, verifier });
-    const u = new URL('https://id.kick.com/oauth/authorize');
-    u.search = new URLSearchParams({
-      response_type: 'code',
-      client_id: config.kick.clientId,
-      redirect_uri: redirectUri('kick'),
-      scope: 'user:read channel:read',
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      state,
+  } else {
+    payload.verifier = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(payload.verifier).digest('base64url');
+    url = new URL('https://id.kick.com/oauth/authorize');
+    url.search = new URLSearchParams({
+      response_type: 'code', client_id: config.kick.clientId, redirect_uri: redirectUri('kick'),
+      scope: 'user:read channel:read', code_challenge: challenge, code_challenge_method: 'S256', state,
     });
-    return { url: u.toString(), state };
   }
-  throw new Error('Unknown provider');
+  return { url: url.toString(), cookie: cookie(STATE(), encrypt(JSON.stringify(payload)), STATE_TTL / 1000) };
 }
+export const clearStateCookie = () => cookie(STATE(), '', 0);
 
 async function postForm(url, params) {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams(params),
-  });
+  const r = await tfetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(params) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error_description || j.error || j.message || `HTTP ${r.status}`);
   return j;
 }
-
 async function getJson(url, token) {
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  const r = await tfetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || j.message || `HTTP ${r.status}`);
   return j;
 }
 
-// ── Callback: exchange code → profile ──────────────────────────────────
 async function exchangeYouTube(code) {
   const t = await postForm('https://oauth2.googleapis.com/token', {
-    code,
-    client_id: config.google.clientId,
-    client_secret: config.google.clientSecret,
-    redirect_uri: redirectUri('youtube'),
-    grant_type: 'authorization_code',
+    code, client_id: config.google.clientId, client_secret: config.google.clientSecret, redirect_uri: redirectUri('youtube'), grant_type: 'authorization_code',
   });
-  const j = await getJson('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', t.access_token);
-  const ch = j.items?.[0];
+  const ch = (await getJson('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', t.access_token)).items?.[0];
   if (!ch) throw new Error('This Google account has no YouTube channel. Pick the account/brand account that owns your channel.');
-  return {
-    provider_user_id: ch.id,
-    channel_id: ch.id,
-    channel_name: ch.snippet.title,
-    channel_slug: ch.snippet.customUrl || null,
-    avatar: ch.snippet.thumbnails?.default?.url || null,
-    tokens: t,
-  };
+  return { providerUserId: ch.id, channelId: ch.id, channelName: ch.snippet.title, channelSlug: ch.snippet.customUrl || null, avatar: ch.snippet.thumbnails?.default?.url || null, tokens: t };
 }
 
 async function exchangeKick(code, verifier) {
   const t = await postForm('https://id.kick.com/oauth/token', {
-    grant_type: 'authorization_code',
-    client_id: config.kick.clientId,
-    client_secret: config.kick.clientSecret,
-    redirect_uri: redirectUri('kick'),
-    code_verifier: verifier,
-    code,
+    grant_type: 'authorization_code', client_id: config.kick.clientId, client_secret: config.kick.clientSecret, redirect_uri: redirectUri('kick'), code_verifier: verifier, code,
   });
-  const users = await getJson('https://api.kick.com/public/v1/users', t.access_token);
-  const user = users.data?.[0];
+  const user = (await getJson('https://api.kick.com/public/v1/users', t.access_token)).data?.[0];
   if (!user) throw new Error('Could not read your Kick profile');
   let channel = null;
-  try {
-    const ch = await getJson('https://api.kick.com/public/v1/channels', t.access_token);
-    channel = ch.data?.[0] || null;
-  } catch { /* scope may be missing; slug falls back to name */ }
+  try { channel = (await getJson('https://api.kick.com/public/v1/channels', t.access_token)).data?.[0] || null; } catch { /* optional */ }
   return {
-    provider_user_id: String(user.user_id),
-    channel_id: channel?.broadcaster_user_id ? String(channel.broadcaster_user_id) : String(user.user_id),
-    channel_name: user.name,
-    channel_slug: (channel?.slug || user.name || '').toLowerCase(),
-    avatar: user.profile_picture || null,
-    tokens: t,
+    providerUserId: String(user.user_id), channelId: String(channel?.broadcaster_user_id || user.user_id),
+    channelName: user.name, channelSlug: (channel?.slug || user.name || '').toLowerCase(), avatar: user.profile_picture || null, tokens: t,
   };
 }
 
-function saveAccount(provider, profile, linkUserId) {
-  const now = Date.now();
-  const existing = db.prepare('SELECT * FROM accounts WHERE provider = ? AND provider_user_id = ?').get(provider, profile.provider_user_id);
-  let userId;
-  if (linkUserId) {
-    if (existing && existing.user_id !== linkUserId) {
-      throw new Error(`This ${provider === 'youtube' ? 'YouTube channel' : 'Kick account'} is already linked to another OmniChat login. Log in with it instead, or disconnect it there first.`);
-    }
-    userId = linkUserId;
-  } else if (existing) {
-    userId = existing.user_id;
-  } else {
-    const r = db.prepare('INSERT INTO users (name, avatar, created_at) VALUES (?, ?, ?)').run(profile.channel_name, profile.avatar, now);
-    userId = Number(r.lastInsertRowid);
+export async function handleCallback(provider, req) {
+  let st = null;
+  try { st = JSON.parse(decrypt(parseCookies(req)[STATE()]) || 'null'); } catch { st = null; }
+  if (!st || st.provider !== provider || st.exp < Date.now() || !safeEqual(st.state, req.query.state)) {
+    throw new Error('Login expired or invalid — please try again.');
   }
-
-  // One account per provider per user — replace a previously linked one.
-  db.prepare('DELETE FROM accounts WHERE user_id = ? AND provider = ? AND provider_user_id <> ?').run(userId, provider, profile.provider_user_id);
-
-  const t = profile.tokens;
-  const prevRefresh = existing ? existing.refresh_token : null;
-  db.prepare(`
-    INSERT INTO accounts (user_id, provider, provider_user_id, channel_id, channel_name, channel_slug, avatar, access_token, refresh_token, expires_at, scope, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (provider, provider_user_id) DO UPDATE SET
-      user_id = excluded.user_id, channel_id = excluded.channel_id, channel_name = excluded.channel_name,
-      channel_slug = excluded.channel_slug, avatar = excluded.avatar, access_token = excluded.access_token,
-      refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, scope = excluded.scope, updated_at = excluded.updated_at
-  `).run(
-    userId, provider, profile.provider_user_id, profile.channel_id, profile.channel_name, profile.channel_slug, profile.avatar,
-    encrypt(t.access_token), t.refresh_token ? encrypt(t.refresh_token) : prevRefresh,
-    Date.now() + (t.expires_in || 3600) * 1000, t.scope || null, now, now,
-  );
-
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-  if (!u.avatar && profile.avatar) db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(profile.avatar, userId);
-  return userId;
-}
-
-export function ensureDefaultWidgets(userId) {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM widgets WHERE user_id = ?').get(userId).n;
-  if (count) return;
-  const now = Date.now();
-  const ins = db.prepare('INSERT INTO widgets (id, user_id, type, name, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  ins.run(randomId(), userId, 'chat', 'My chat', '{}', now, now);
-  ins.run(randomId(), userId, 'stats', 'My stats', '{}', now, now);
-}
-
-export async function handleCallback(provider, query, cookieState) {
-  const st = takeState(query.get('state'), cookieState);
-  if (!st || st.provider !== provider) throw new Error('Login expired or invalid — please try again.');
-  if (query.get('error')) throw new Error(query.get('error_description') || query.get('error'));
-  const code = query.get('code');
-  if (!code) throw new Error('No authorization code returned');
+  if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
+  const code = req.query.code;
+  if (!code || typeof code !== 'string') throw new Error('No authorization code returned');
   const profile = provider === 'youtube' ? await exchangeYouTube(code) : await exchangeKick(code, st.verifier);
-  const userId = saveAccount(provider, profile, st.linkUserId);
-  ensureDefaultWidgets(userId);
-  log(userId, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channel_name}`);
-  return { userId, linked: !!st.linkUserId };
+  const uid = await saveAccount(provider, profile, st.linkUid);
+  await ensureDefaultWidgets(uid);
+  await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
+  return { uid, linked: !!st.linkUid };
 }
 
-// ── Access tokens for watchers (auto refresh + persist) ────────────────
-const refreshing = new Map();
-export async function getAccessToken(accountId) {
-  const acc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId);
-  if (!acc) throw new Error('Account was disconnected');
-  if (acc.expires_at && Date.now() < acc.expires_at - 90_000) return decrypt(acc.access_token);
-  if (refreshing.has(accountId)) return refreshing.get(accountId);
-
-  const p = (async () => {
-    const refresh = decrypt(acc.refresh_token);
-    if (!refresh) throw Object.assign(new Error('Session expired — please reconnect this account'), { reconnect: true });
-    let t;
-    try {
-      t = acc.provider === 'youtube'
-        ? await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' })
-        : await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
-    } catch (e) {
-      throw Object.assign(new Error(`Token refresh failed (${e.message}) — please reconnect`), { reconnect: true });
+async function saveAccount(provider, p, linkUid) {
+  const linkKey = `link/${provider}/${p.providerUserId}`;
+  const existing = await db.get(linkKey);
+  let uid;
+  if (linkUid) {
+    if (existing && existing.uid !== linkUid && (await getUser(existing.uid))) {
+      throw new Error(`This ${provider === 'youtube' ? 'YouTube channel' : 'Kick account'} is already linked to another OmniChat login. Sign in with it instead, or disconnect it there first.`);
     }
-    db.prepare('UPDATE accounts SET access_token = ?, refresh_token = COALESCE(?, refresh_token), expires_at = ?, updated_at = ? WHERE id = ?').run(
-      encrypt(t.access_token), t.refresh_token ? encrypt(t.refresh_token) : null, Date.now() + (t.expires_in || 3600) * 1000, Date.now(), accountId,
-    );
-    return t.access_token;
-  })();
-  refreshing.set(accountId, p);
-  try { return await p; } finally { refreshing.delete(accountId); }
+    uid = linkUid;
+  } else if (existing && (await getUser(existing.uid))) {
+    uid = existing.uid;
+  } else {
+    const u = blankUser(p.channelName, p.avatar);
+    await db.set(`user/${u.id}`, u);
+    uid = u.id;
+  }
+  let oldLink = null;
+  await updateUser(uid, (u) => {
+    if (!u) throw new Error('User not found');
+    const prev = u.accounts[provider];
+    if (prev && prev.providerUserId !== p.providerUserId) oldLink = `link/${provider}/${prev.providerUserId}`;
+    const same = prev && prev.providerUserId === p.providerUserId ? prev : {};
+    u.accounts[provider] = {
+      ...same, provider, providerUserId: p.providerUserId, channelId: p.channelId, channelName: p.channelName, channelSlug: p.channelSlug, avatar: p.avatar,
+      accessToken: encrypt(p.tokens.access_token),
+      refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : same.refreshToken || null,
+      expiresAt: Date.now() + (p.tokens.expires_in || 3600) * 1000, scope: p.tokens.scope || null, createdAt: same.createdAt || Date.now(),
+    };
+    if (!u.avatar && p.avatar) u.avatar = p.avatar;
+    return u;
+  });
+  if (oldLink) await db.del(oldLink);
+  await db.set(linkKey, { uid });
+  return uid;
+}
+
+export async function ensureDefaultWidgets(uid) {
+  const u = await getUser(uid);
+  if (!u || u.widgets?.length) return;
+  const now = Date.now();
+  const ids = [];
+  for (const [type, name] of [['chat', 'My chat'], ['stats', 'My stats']]) {
+    const id = randomId(9);
+    await db.set(`widget/${id}`, { id, uid, type, name, settings: {}, createdAt: now, updatedAt: now });
+    ids.push(id);
+  }
+  await updateUser(uid, (x) => (x ? { ...x, widgets: [...(x.widgets || []), ...ids] } : undefined));
+}
+
+// ── Access tokens (auto refresh + persist) ──
+export async function getAccessToken(uid, provider) {
+  const acc = (await getUser(uid))?.accounts?.[provider];
+  if (!acc) throw new Error('Account was disconnected');
+  if (acc.expiresAt && Date.now() < acc.expiresAt - 90_000) return decrypt(acc.accessToken);
+  const refresh = decrypt(acc.refreshToken);
+  if (!refresh) throw Object.assign(new Error('Session expired — please reconnect this account'), { reconnect: true });
+  let t;
+  try {
+    t = provider === 'youtube'
+      ? await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' })
+      : await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
+  } catch (e) {
+    throw Object.assign(new Error(`Token refresh failed (${e.message}) — please reconnect`), { reconnect: true });
+  }
+  await updateUser(uid, (x) => {
+    const a = x?.accounts?.[provider];
+    if (!a) return undefined;
+    a.accessToken = encrypt(t.access_token);
+    if (t.refresh_token) a.refreshToken = encrypt(t.refresh_token);
+    a.expiresAt = Date.now() + (t.expires_in || 3600) * 1000;
+    return x;
+  });
+  return t.access_token;
 }
 
 export function publicAccount(a) {
-  return { provider: a.provider, channelId: a.channel_id, channelName: a.channel_name, channelSlug: a.channel_slug, avatar: a.avatar, connectedAt: a.created_at, chatroomId: a.kick_chatroom_id ?? null, kickChannelId: a.kick_channel_id ?? null, followers: a.kick_followers ?? null };
+  return {
+    provider: a.provider, channelId: a.channelId, channelName: a.channelName, channelSlug: a.channelSlug, avatar: a.avatar, connectedAt: a.createdAt,
+    chatroomId: a.kickChatroomId ?? null, kickChannelId: a.kickChannelId ?? null, followers: a.kickFollowers ?? null,
+  };
 }
 
-// ── Revoke + delete (privacy) ─────────────────────────────────────────
-/** Best-effort token revocation at the provider, so access ends immediately. */
+// ── Revoke + delete (privacy) ──
 export async function revokeAccount(acc) {
-  const token = decrypt(acc.refresh_token) || decrypt(acc.access_token);
+  const token = decrypt(acc.refreshToken) || decrypt(acc.accessToken);
   if (!token) return;
   try {
     if (acc.provider === 'youtube') {
-      await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) });
+      await tfetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) });
     } else {
       const u = new URL('https://id.kick.com/oauth/revoke');
-      u.search = new URLSearchParams({ token, token_hint_type: acc.refresh_token ? 'refresh_token' : 'access_token' });
-      await fetch(u, { method: 'POST' });
+      u.search = new URLSearchParams({ token, token_hint_type: acc.refreshToken ? 'refresh_token' : 'access_token' });
+      await tfetch(u, { method: 'POST' });
     }
-  } catch { /* ignore network errors */ }
+  } catch { /* best effort */ }
+}
+
+export async function disconnectAccount(uid, provider) {
+  const acc = (await getUser(uid))?.accounts?.[provider];
+  if (!acc) return;
+  await revokeAccount(acc);
+  await updateUser(uid, (x) => { if (!x) return undefined; delete x.accounts[provider]; return x; });
+  await db.del(`link/${provider}/${acc.providerUserId}`);
+  await db.del(`live/${uid}`);
 }
 
 /** Permanently delete a user and everything stored about them. */
-export async function deleteUser(userId) {
-  const accounts = db.prepare('SELECT * FROM accounts WHERE user_id = ?').all(userId);
-  await Promise.all(accounts.map(revokeAccount));
-  db.prepare('DELETE FROM messages WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM logs WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM users WHERE id = ?').run(userId); // cascades: accounts, sessions, widgets
+export async function deleteUser(uid) {
+  const u = await getUser(uid);
+  if (!u) return;
+  await Promise.all(Object.values(u.accounts || {}).map(revokeAccount));
+  const keys = [
+    ...Object.values(u.accounts || {}).map((a) => `link/${a.provider}/${a.providerUserId}`),
+    ...(u.sessions || []).map((s) => `session/${s.hash}`),
+    ...(u.widgets || []).map((id) => `widget/${id}`),
+    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `user/${uid}`,
+  ];
+  await Promise.all(keys.map((k) => db.del(k)));
 }
