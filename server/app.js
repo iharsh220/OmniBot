@@ -13,9 +13,9 @@ import { log, addLogs, addEvents, readEvents, readLogs, readHistory } from './fe
 import { tick, publicState } from './engine.js';
 import { verifyKickWebhook, webhookToEvents } from './kick.js';
 import { eggSettings, readEggs, formatEgg, kickHistoryReply } from './eggs.js';
-import { postChat, youtubeBotReady } from './youtube.js';
+import { postChat, youtubeBotReady, usesSharedBot, canWriteChat } from './youtube.js';
 import { postKickChat, kickChatReady } from './kick.js';
-import { disconnectYouTubeBot } from './auth.js';
+import { disconnectYouTubeBot, isAdmin, getSystemBot, saveSystemBot, disconnectSystemBot } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
 
 const app = express();
@@ -43,9 +43,11 @@ app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (re
   // ?bot=1 (YouTube): connect the separate bot account that posts Egg Bot messages.
   // ?chat=1 (Kick): ask for chat:write so the Kick app bot can post (kept on later reconnects).
   const botAccount = provider === 'youtube' && req.query.bot === '1';
-  if (botAccount && !user) return res.redirect('/login');
+  const sharedBot = provider === 'youtube' && req.query.sharedbot === '1';
+  if ((botAccount || sharedBot) && !user) return res.redirect('/login');
+  if (sharedBot && !isAdmin(user)) return res.redirect(`/?error=${encodeURIComponent('Only an OmniChat admin can set the shared bot')}#eggs`);
   const chatWrite = provider === 'kick' && (req.query.chat === '1' || kickChatReady(user?.accounts?.kick));
-  const a = authorize(provider, user?.id, { chatWrite, botAccount });
+  const a = authorize(provider, user?.id, { chatWrite, botAccount, sharedBot });
   setCookies(res, [a.cookie]);
   res.redirect(a.url);
 }));
@@ -265,8 +267,9 @@ api.delete(`/widgets/${ID}`, ah(async (req, res) => {
 
 // ── Egg Bot ──
 api.get('/eggs', ah(async (req, res) => {
-  const [doc, live] = await Promise.all([readEggs(req.user.id), db.get(`live/${req.user.id}`)]);
+  const [doc, live, sharedBot] = await Promise.all([readEggs(req.user.id), db.get(`live/${req.user.id}`), getSystemBot()]);
   const yt = live?.youtube || {};
+  const botInfo = (b) => (b ? { channelName: b.channelName, avatar: b.avatar, ready: canWriteChat(b) } : null);
   res.json({
     settings: eggSettings(req.user),
     items: doc.items,
@@ -274,8 +277,12 @@ api.get('/eggs', ah(async (req, res) => {
     status: {
       botConfigured: !!config.discord.botToken,
       youtubeConnected: !!req.user.accounts?.youtube,
-      youtubeBot: req.user.ytBot ? { channelName: req.user.ytBot.channelName, avatar: req.user.ytBot.avatar } : null,
-      youtubeBotReady: youtubeBotReady(req.user),
+      botMode: usesSharedBot(req.user) ? 'shared' : 'own',
+      sharedBot: botInfo(sharedBot),
+      ownBot: botInfo(req.user.ytBot),
+      youtubeBot: botInfo(usesSharedBot(req.user) ? sharedBot : req.user.ytBot),
+      youtubeBotReady: youtubeBotReady(req.user, sharedBot),
+      isAdmin: isAdmin(req.user),
       ytLive: !!(yt.live && yt._chatId),
       kickConnected: !!req.user.accounts?.kick,
       kickChatReady: kickChatReady(req.user.accounts?.kick),
@@ -295,6 +302,10 @@ api.put('/eggs/settings', ah(async (req, res) => {
   if (b.enabled !== undefined) next.enabled = !!b.enabled;
   if (b.commandEnabled !== undefined) next.commandEnabled = !!b.commandEnabled;
   if (b.youtube !== undefined) next.youtube = !!b.youtube;
+  if (b.botMode !== undefined) {
+    if (!['shared', 'own'].includes(b.botMode)) return res.status(400).json({ error: 'botMode must be shared or own' });
+    next.botMode = b.botMode;
+  }
   if (b.kick !== undefined) next.kick = !!b.kick;
   if (b.channelId !== undefined) {
     const id = String(b.channelId).trim();
@@ -321,14 +332,33 @@ api.post('/eggs/test', ah(async (req, res) => {
   const doc = await readEggs(req.user.id);
   const text = doc.items[0] ? formatEgg(doc.items[0]) : '🥚 OmniChat Egg Bot is connected!';
   const result = {};
-  if (youtubeBotReady(req.user) && yt.live && yt._chatId) {
-    try { await postChat(req.user.id, yt._chatId, text); result.youtube = 'sent'; } catch (e) { result.youtube = e.message; }
-  } else result.youtube = !youtubeBotReady(req.user) ? 'connect the YouTube bot account first' : 'go live on YouTube first';
+  const sharedBot = await getSystemBot();
+  const shared = usesSharedBot(req.user);
+  if (youtubeBotReady(req.user, sharedBot) && yt.live && yt._chatId) {
+    try { await postChat(req.user.id, yt._chatId, text, { shared }); result.youtube = 'sent'; } catch (e) { result.youtube = e.message; }
+  } else result.youtube = !youtubeBotReady(req.user, sharedBot) ? (shared ? 'the shared OmniChat Bot is not set up yet' : 'connect your YouTube bot account first') : 'go live on YouTube first';
   if (kickChatReady(req.user.accounts?.kick)) {
     try { await postKickChat(req.user.id, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; }
   } else result.kick = req.user.accounts?.kick ? 'give Kick chat permission first' : 'connect Kick first';
   await log(req.user.id, 'info', 'eggs', `Test message → YouTube: ${result.youtube} · Kick: ${result.kick}`);
   res.json({ ok: true, text, result });
+}));
+
+// Admin: the shared OmniChat Bot used by every streamer
+api.post('/admin/shared-bot/use-mine', ah(async (req, res) => {
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admins only' });
+  if (!canWriteChat(req.user.ytBot)) return res.status(400).json({ error: 'Connect your own bot account first' });
+  // Move (not copy) so that disconnecting a personal bot can never revoke the shared bot's token.
+  await saveSystemBot({ ...req.user.ytBot, createdAt: Date.now() });
+  await updateUser(req.user.id, (u) => { delete u.ytBot; u.egg = { ...(u.egg || {}), botMode: 'shared' }; return u; });
+  await log(req.user.id, 'info', 'eggs', `Shared OmniChat Bot set to: ${req.user.ytBot.channelName}`);
+  res.json({ ok: true });
+}));
+api.delete('/admin/shared-bot', ah(async (req, res) => {
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admins only' });
+  await disconnectSystemBot();
+  await log(req.user.id, 'info', 'eggs', 'Shared OmniChat Bot removed (token revoked)');
+  res.json({ ok: true });
 }));
 
 api.delete('/eggs/bot', ah(async (req, res) => {

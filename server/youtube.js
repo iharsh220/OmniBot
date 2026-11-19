@@ -1,7 +1,7 @@
 // YouTube work for one user. Runs on demand (when a widget/dashboard polls) and only calls
 // the API when its timers are due, to protect the shared daily quota.
 import { config, BROWSER_UA, tfetch } from './config.js';
-import { getAccessToken } from './auth.js';
+import { getAccessToken, getSystemBotToken } from './auth.js';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 const KNOWN_TYPES = new Set([
@@ -151,9 +151,12 @@ export async function youtubeStep(ctx, acc) {
   }
 }
 
-/** Send a message to the live chat as the connected YouTube BOT account (youtube.force-ssl). ~50 quota units. */
-export async function postChat(uid, liveChatId, text) {
-  const token = await getAccessToken(uid, 'youtube', { bot: true });
+/**
+ * Send a message to a live chat as a YouTube BOT account (youtube.force-ssl). ~50 quota units.
+ * shared=true → the shared OmniChat Bot; otherwise the streamer's own bot account.
+ */
+export async function postChat(uid, liveChatId, text, { shared = false } = {}) {
+  const token = shared ? await getSystemBotToken() : await getAccessToken(uid, 'youtube', { bot: true });
   const r = await tfetch(`${API}/liveChat/messages?part=snippet`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -166,5 +169,6 @@ export async function postChat(uid, liveChatId, text) {
 }
 
 export const canWriteChat = (acc) => !!acc?.scope && acc.scope.includes('youtube.force-ssl');
-/** The Egg Bot posts on YouTube only through a separate bot account. */
-export const youtubeBotReady = (user) => canWriteChat(user?.ytBot);
+/** The Egg Bot posts on YouTube only through a bot account: the shared OmniChat Bot or the streamer's own. */
+export const usesSharedBot = (user) => (user?.egg?.botMode || 'shared') === 'shared';
+export const youtubeBotReady = (user, sharedBot) => (usesSharedBot(user) ? canWriteChat(sharedBot) : canWriteChat(user?.ytBot));

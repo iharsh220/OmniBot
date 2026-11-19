@@ -8,7 +8,8 @@ const MAX_HISTORY = 50;
 const YT_MAX = 200; // YouTube live chat message length limit
 
 // enabled = master ON/OFF · youtube / kick = where to post · commandEnabled = !egghistory
-export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, channelId: '', rarities: [], youtube: true, kick: true });
+// botMode: 'shared' = post as the shared OmniChat Bot · 'own' = the streamer's own bot account
+export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, channelId: '', rarities: [], youtube: true, kick: true, botMode: 'shared' });
 export const eggSettings = (user) => ({ ...defaultEggSettings(), ...(user.egg || {}) });
 
 const stripEmoji = (s) => String(s || '').replace(/<a?:\w+:\d+>/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();

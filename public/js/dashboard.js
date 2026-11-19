@@ -961,8 +961,10 @@ async function renderEggs() {
   const steps = [
     [st.botConfigured, 'Discord bot token', st.botConfigured ? 'DISCORD_BOT_TOKEN is set on the server' : 'Add DISCORD_BOT_TOKEN in Netlify environment variables, then redeploy'],
     [!!s.channelId && !st.error && !!st.lastCheckAt, 'Egg channel', !s.channelId ? 'Paste your #egg-stock Channel ID below' : st.error ? st.error : st.lastCheckAt ? `Reading your channel · checked ${ago(st.lastCheckAt)}` : 'Waiting for the first check…'],
-    [st.youtubeBotReady, 'YouTube bot account', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}` : 'Connect a separate YouTube account (e.g. "SmartWolf Bot") that posts the messages',
-      !st.youtubeBotReady ? h('a', { class: 'btn sm primary', href: '/auth/youtube?bot=1' }, 'Connect bot') : null],
+    [st.youtubeBotReady, 'YouTube bot', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}`
+      : st.botMode === 'shared' ? 'The shared OmniChat Bot is not set up yet — choose "My own bot" or ask the admin'
+        : 'Connect a separate YouTube account that posts the messages',
+      !st.youtubeBotReady && st.botMode === 'own' ? h('a', { class: 'btn sm primary', href: '/auth/youtube?bot=1' }, 'Connect bot') : null],
     [st.kickChatReady, 'Kick bot permission', st.kickChatReady ? 'Your Kick app bot can post in your chat' : st.kickConnected ? 'Allow OmniChat to post in your Kick chat (needs "Write to Chat feed" in your Kick app)' : 'Connect Kick first',
       !st.kickChatReady ? h('a', { class: 'btn sm primary', href: st.kickConnected ? '/auth/kick?chat=1' : '#connections' }, st.kickConnected ? 'Give permission' : 'Connect Kick') : null],
     [st.ytLive || st.kickLive, 'Live status', `YouTube: ${st.ytLive ? 'LIVE' : 'offline'} · Kick: ${st.kickLive ? 'LIVE' : 'offline'} — the bot posts only where you are live`],
@@ -992,14 +994,42 @@ async function renderEggs() {
     row('Post in YouTube chat', st.youtubeBot ? `As ${st.youtubeBot.channelName}` : 'Needs the YouTube bot account', toggle(s.youtube, (v) => save({ youtube: v }))),
     row('Post in Kick chat', 'As your Kick app bot', toggle(s.kick, (v) => save({ kick: v }))),
     row('!egghistory command', 'Anyone can type !egghistory (YouTube or Kick) to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
-    st.youtubeBot ? h('div', { class: 'srow' },
-      h('div', { class: 'acct', style: 'flex:1' }, st.youtubeBot.avatar ? h('img', { src: st.youtubeBot.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'ph' }),
-        h('div', { class: 'meta' }, h('b', {}, st.youtubeBot.channelName), h('span', { class: 'muted tiny' }, 'YouTube bot account'))),
-      h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
-        if (!(await dialog({ title: 'Disconnect the YouTube bot?', text: 'Its token is revoked. Egg messages stop on YouTube until you connect a bot again.', confirm: 'Disconnect', danger: true }))) return;
-        try { await api('/api/eggs/bot', { method: 'DELETE' }); toast('Bot disconnected'); } catch (e) { toast(e.message, 'err'); }
-        renderEggs();
-      } }, 'Disconnect')) : null,
+    // which YouTube bot posts the messages
+    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:10px' },
+      h('div', { class: 'txt' }, h('b', {}, 'YouTube bot'), h('span', {}, 'Who posts the egg messages in your YouTube chat. Tip: make the bot a moderator on your channel.')),
+      h('div', { class: 'seg full' },
+        h('button', { type: 'button', class: st.botMode === 'shared' ? 'on' : '', onclick: () => save({ botMode: 'shared' }, 'Using OmniChat Bot') }, '🤖 OmniChat Bot'),
+        h('button', { type: 'button', class: st.botMode === 'own' ? 'on' : '', onclick: () => save({ botMode: 'own' }, 'Using your own bot') }, '👤 My own bot')),
+      (() => {
+        const b = st.botMode === 'shared' ? st.sharedBot : st.ownBot;
+        if (!b) {
+          return st.botMode === 'shared'
+            ? h('p', { class: 'fld-hint' }, 'The shared OmniChat Bot is not set up yet.')
+            : h('div', {}, h('a', { class: 'btn sm primary', href: '/auth/youtube?bot=1' }, 'Connect my bot account'));
+        }
+        return h('div', { class: 'acct' }, b.avatar ? h('img', { src: b.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'ph' }),
+          h('div', { class: 'meta', style: 'flex:1' }, h('b', {}, b.channelName), h('span', { class: 'muted tiny' }, st.botMode === 'shared' ? 'Shared OmniChat Bot · used by every streamer' : 'Your own bot account')),
+          st.botMode === 'own' ? h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
+            if (!(await dialog({ title: 'Disconnect your bot?', text: 'Its token is revoked. Egg messages stop on YouTube until you connect a bot again.', confirm: 'Disconnect', danger: true }))) return;
+            try { await api('/api/eggs/bot', { method: 'DELETE' }); toast('Bot disconnected'); } catch (e) { toast(e.message, 'err'); }
+            renderEggs();
+          } }, 'Disconnect') : null);
+      })()),
+    // admin only: manage the shared bot
+    st.isAdmin ? h('div', { class: 'srow admin-row', style: 'flex-direction:column;align-items:stretch;gap:10px' },
+      h('div', { class: 'txt' }, h('b', {}, '🛡️ Admin · Shared OmniChat Bot'), h('span', {}, st.sharedBot ? `Every streamer who picks "OmniChat Bot" posts as ${st.sharedBot.channelName}.` : 'Set the YouTube account that posts egg messages for every streamer.')),
+      h('div', { class: 'quick' },
+        st.ownBot ? h('button', { class: 'btn sm primary', type: 'button', onclick: async () => {
+          if (!(await dialog({ title: `Make ${st.ownBot.channelName} the shared OmniChat Bot?`, text: 'Your own bot account becomes the shared bot for every streamer.', confirm: 'Make shared' }))) return;
+          try { await api('/api/admin/shared-bot/use-mine', { method: 'POST' }); toast('Shared OmniChat Bot set'); } catch (e) { toast(e.message, 'err'); }
+          renderEggs();
+        } }, `Use ${st.ownBot.channelName} as shared bot`) : null,
+        h('a', { class: 'btn sm', href: '/auth/youtube?sharedbot=1' }, st.sharedBot ? 'Reconnect shared bot' : 'Connect shared bot'),
+        st.sharedBot ? h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
+          if (!(await dialog({ title: 'Remove the shared OmniChat Bot?', text: 'Its token is revoked. Streamers using "OmniChat Bot" stop getting YouTube egg messages.', confirm: 'Remove', danger: true }))) return;
+          try { await api('/api/admin/shared-bot', { method: 'DELETE' }); toast('Shared bot removed'); } catch (e) { toast(e.message, 'err'); }
+          renderEggs();
+        } }, 'Remove') : null)) : null,
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
       h('div', { class: 'txt' }, h('b', {}, 'Discord channel ID'), h('span', {}, 'Right-click #🥚-egg-stock → Copy Channel ID (Developer Mode on).')),
       h('div', { class: 'wpick' }, chInput, chSave)),

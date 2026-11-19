@@ -69,9 +69,9 @@ export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt 
  * chatWrite: YouTube → youtube.force-ssl (post in chat); Kick → chat:write.
  * botAccount: connect a separate YouTube account that posts the Egg Bot messages (not a login).
  */
-export function authorize(provider, linkUid, { chatWrite = false, botAccount = false } = {}) {
+export function authorize(provider, linkUid, { chatWrite = false, botAccount = false, sharedBot = false } = {}) {
   const state = randomToken();
-  const payload = { state, provider, linkUid: linkUid || null, botAccount: !!botAccount, exp: Date.now() + STATE_TTL };
+  const payload = { state, provider, linkUid: linkUid || null, botAccount: !!botAccount || !!sharedBot, sharedBot: !!sharedBot, exp: Date.now() + STATE_TTL };
   let url;
   if (provider === 'youtube') {
     url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -140,6 +140,13 @@ export async function handleCallback(provider, req) {
   const code = req.query.code;
   if (!code || typeof code !== 'string') throw new Error('No authorization code returned');
   const profile = provider === 'youtube' ? await exchangeYouTube(code) : await exchangeKick(code, st.verifier);
+  if (st.sharedBot) {
+    const admin = await getUser(st.linkUid);
+    if (!admin || !isAdmin(admin) || provider !== 'youtube') throw new Error('Only an OmniChat admin can set the shared bot.');
+    await saveSystemBot(botRecord(profile));
+    await log(st.linkUid, 'info', 'eggs', `Shared OmniChat Bot set to: ${profile.channelName}`);
+    return { uid: st.linkUid, linked: true, bot: true };
+  }
   if (st.botAccount) {
     if (!st.linkUid || provider !== 'youtube') throw new Error('Sign in first, then connect the bot account.');
     await saveYouTubeBot(st.linkUid, profile);
@@ -186,6 +193,42 @@ async function saveAccount(provider, p, linkUid) {
   if (oldLink) await db.del(oldLink);
   await db.set(linkKey, { uid });
   return uid;
+}
+
+// ── Shared OmniChat Bot (one YouTube bot account used for every streamer, set by an admin) ──
+export const isAdmin = (user) => !!user?.accounts?.youtube && config.adminYouTubeChannelIds.includes(user.accounts.youtube.channelId);
+const botRecord = (p) => ({
+  provider: 'youtube', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
+  accessToken: encrypt(p.tokens.access_token), refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : null,
+  expiresAt: Date.now() + (p.tokens.expires_in || 3600) * 1000, scope: p.tokens.scope || null, createdAt: Date.now(),
+});
+export const getSystemBot = () => db.get('system/ytbot');
+export const saveSystemBot = (rec) => db.set('system/ytbot', rec);
+export async function disconnectSystemBot() {
+  const bot = await getSystemBot();
+  if (bot) await revokeAccount(bot);
+  await db.del('system/ytbot');
+}
+export async function getSystemBotToken() {
+  const bot = await getSystemBot();
+  if (!bot) throw new Error('The shared OmniChat Bot is not set up');
+  if (bot.expiresAt && Date.now() < bot.expiresAt - 90_000) return decrypt(bot.accessToken);
+  const refresh = decrypt(bot.refreshToken);
+  if (!refresh) throw new Error('Shared OmniChat Bot needs to be reconnected by the admin');
+  let t;
+  try {
+    t = await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
+  } catch (e) {
+    throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) — admin must reconnect it`);
+  }
+  await db.update('system/ytbot', (b) => {
+    if (!b) return undefined;
+    b.accessToken = encrypt(t.access_token);
+    if (t.refresh_token) b.refreshToken = encrypt(t.refresh_token);
+    b.expiresAt = Date.now() + (t.expires_in || 3600) * 1000;
+    return b;
+  }, null);
+  return t.access_token;
 }
 
 /** The separate YouTube account that posts Egg Bot messages (stored on the user, never used to log in). */
