@@ -40,6 +40,8 @@ const P = {
   play: '<path d="m6 3 14 9-14 9z"/>',
   type: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  egg: '<path d="M12 3c-3.6 0-6.5 5.3-6.5 10a6.5 6.5 0 0 0 13 0C18.5 8.3 15.6 3 12 3z"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
 };
 
 export function icon(name, cls = 'i') {

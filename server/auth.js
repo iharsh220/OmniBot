@@ -65,15 +65,21 @@ export async function destroyAllSessions(uid) {
 export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt > Date.now()).length;
 
 // ── OAuth: state + PKCE verifier in an encrypted short-lived cookie (blocks login CSRF) ──
-export function authorize(provider, linkUid) {
+/**
+ * chatWrite: YouTube → youtube.force-ssl (post in chat); Kick → chat:write.
+ * botAccount: connect a separate YouTube account that posts the Egg Bot messages (not a login).
+ */
+export function authorize(provider, linkUid, { chatWrite = false, botAccount = false } = {}) {
   const state = randomToken();
-  const payload = { state, provider, linkUid: linkUid || null, exp: Date.now() + STATE_TTL };
+  const payload = { state, provider, linkUid: linkUid || null, botAccount: !!botAccount, exp: Date.now() + STATE_TTL };
   let url;
   if (provider === 'youtube') {
     url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     url.search = new URLSearchParams({
       client_id: config.google.clientId, redirect_uri: redirectUri('youtube'), response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/youtube.readonly', access_type: 'offline', prompt: 'consent select_account', state,
+      // youtube.force-ssl only when the streamer turns on the chat bot (it can post messages).
+      scope: chatWrite || botAccount ? 'https://www.googleapis.com/auth/youtube.force-ssl' : 'https://www.googleapis.com/auth/youtube.readonly',
+      access_type: 'offline', prompt: 'consent select_account', state,
     });
   } else {
     payload.verifier = crypto.randomBytes(32).toString('base64url');
@@ -81,7 +87,7 @@ export function authorize(provider, linkUid) {
     url = new URL('https://id.kick.com/oauth/authorize');
     url.search = new URLSearchParams({
       response_type: 'code', client_id: config.kick.clientId, redirect_uri: redirectUri('kick'),
-      scope: 'user:read channel:read', code_challenge: challenge, code_challenge_method: 'S256', state,
+      scope: chatWrite ? 'user:read channel:read chat:write' : 'user:read channel:read', code_challenge: challenge, code_challenge_method: 'S256', state,
     });
   }
   return { url: url.toString(), cookie: cookie(STATE(), encrypt(JSON.stringify(payload)), STATE_TTL / 1000) };
@@ -134,6 +140,12 @@ export async function handleCallback(provider, req) {
   const code = req.query.code;
   if (!code || typeof code !== 'string') throw new Error('No authorization code returned');
   const profile = provider === 'youtube' ? await exchangeYouTube(code) : await exchangeKick(code, st.verifier);
+  if (st.botAccount) {
+    if (!st.linkUid || provider !== 'youtube') throw new Error('Sign in first, then connect the bot account.');
+    await saveYouTubeBot(st.linkUid, profile);
+    await log(st.linkUid, 'info', 'eggs', `YouTube bot account connected: ${profile.channelName}`);
+    return { uid: st.linkUid, linked: true, bot: true };
+  }
   const uid = await saveAccount(provider, profile, st.linkUid);
   await ensureDefaultWidgets(uid);
   await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
@@ -176,6 +188,28 @@ async function saveAccount(provider, p, linkUid) {
   return uid;
 }
 
+/** The separate YouTube account that posts Egg Bot messages (stored on the user, never used to log in). */
+async function saveYouTubeBot(uid, p) {
+  await updateUser(uid, (u) => {
+    if (!u) throw new Error('User not found');
+    const prev = u.ytBot?.channelId === p.channelId ? u.ytBot : {};
+    u.ytBot = {
+      provider: 'youtube', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
+      accessToken: encrypt(p.tokens.access_token),
+      refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : prev.refreshToken || null,
+      expiresAt: Date.now() + (p.tokens.expires_in || 3600) * 1000, scope: p.tokens.scope || null, createdAt: prev.createdAt || Date.now(),
+    };
+    return u;
+  });
+}
+
+export async function disconnectYouTubeBot(uid) {
+  const bot = (await getUser(uid))?.ytBot;
+  if (!bot) return;
+  await revokeAccount(bot);
+  await updateUser(uid, (u) => { if (!u) return undefined; delete u.ytBot; return u; });
+}
+
 export async function ensureDefaultWidgets(uid) {
   const u = await getUser(uid);
   if (!u || u.widgets?.length) return;
@@ -190,8 +224,9 @@ export async function ensureDefaultWidgets(uid) {
 }
 
 // ── Access tokens (auto refresh + persist) ──
-export async function getAccessToken(uid, provider) {
-  const acc = (await getUser(uid))?.accounts?.[provider];
+export async function getAccessToken(uid, provider, { bot = false } = {}) {
+  const u0 = await getUser(uid);
+  const acc = bot ? u0?.ytBot : u0?.accounts?.[provider];
   if (!acc) throw new Error('Account was disconnected');
   if (acc.expiresAt && Date.now() < acc.expiresAt - 90_000) return decrypt(acc.accessToken);
   const refresh = decrypt(acc.refreshToken);
@@ -205,7 +240,7 @@ export async function getAccessToken(uid, provider) {
     throw Object.assign(new Error(`Token refresh failed (${e.message}) — please reconnect`), { reconnect: true });
   }
   await updateUser(uid, (x) => {
-    const a = x?.accounts?.[provider];
+    const a = bot ? x?.ytBot : x?.accounts?.[provider];
     if (!a) return undefined;
     a.accessToken = encrypt(t.access_token);
     if (t.refresh_token) a.refreshToken = encrypt(t.refresh_token);
@@ -250,12 +285,12 @@ export async function disconnectAccount(uid, provider) {
 export async function deleteUser(uid) {
   const u = await getUser(uid);
   if (!u) return;
-  await Promise.all(Object.values(u.accounts || {}).map(revokeAccount));
+  await Promise.all([...Object.values(u.accounts || {}), ...(u.ytBot ? [u.ytBot] : [])].map(revokeAccount));
   const keys = [
     ...Object.values(u.accounts || {}).map((a) => `link/${a.provider}/${a.providerUserId}`),
     ...(u.sessions || []).map((s) => `session/${s.hash}`),
     ...(u.widgets || []).map((id) => `widget/${id}`),
-    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `user/${uid}`,
+    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `user/${uid}`,
   ];
   await Promise.all(keys.map((k) => db.del(k)));
 }

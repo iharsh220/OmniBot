@@ -14,6 +14,11 @@ export const config = {
     get offlineCheckMs() { return num(e.YT_OFFLINE_CHECK_MS, 60000); },
   },
   get kickStatsMs() { return num(e.KICK_STATS_POLL_MS, 30000); },
+  discord: { get botToken() { return e.DISCORD_BOT_TOKEN || ''; } },
+  eggs: {
+    get pollMs() { return num(e.EGG_POLL_MS, 10000); },        // how often to read the Discord channel
+    get dailyPostLimit() { return num(e.EGG_DAILY_POST_LIMIT, 120); }, // YouTube quota guard (~50 units / message)
+  },
 };
 
 export const isHttps = () => config.appUrl.startsWith('https://');

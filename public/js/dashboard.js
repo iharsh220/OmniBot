@@ -94,6 +94,7 @@ const PAGES = {
   overview: ['Overview', 'Your stream at a glance'],
   studio: ['Studio', 'Design your overlays — every change is saved and goes live instantly'],
   connections: ['Connections', 'Link the platforms you stream on'],
+  eggs: ['Egg Bot', 'Post Steal an Egg spawns from your Discord into YouTube & Kick chat'],
   logs: ['Logs', 'What OmniChat is doing, and your chat history'],
   settings: ['Settings', 'Appearance, privacy and security'],
 };
@@ -933,6 +934,105 @@ async function deleteAccount() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+//  Egg Bot
+// ═════════════════════════════════════════════════════════════════════
+const RARITY_COLORS = { common: '#9ca3af', uncommon: '#22c55e', rare: '#3b82f6', epic: '#a855f7', legendary: '#f59e0b', mythic: '#ef4444', secret: '#8b5cf6', eternal: '#06b6d4', divine: '#eab308' };
+const rarityTag = (r) => h('span', { class: 'tag', style: `background:${(RARITY_COLORS[(r || '').toLowerCase()] || '#6b7280')}22;color:${RARITY_COLORS[(r || '').toLowerCase()] || 'var(--muted)'}` }, r || 'Egg');
+
+async function renderEggs() {
+  const root = $('#page-eggs');
+  let data;
+  try { data = await api('/api/eggs'); } catch (e) { toast(e.message, 'err'); return; }
+  if (page !== 'eggs') return;
+  const { settings: s, items, status: st } = data;
+  const save = async (patch, msg = 'Saved') => {
+    try { await api('/api/eggs/settings', { method: 'PUT', body: JSON.stringify(patch) }); toast(msg); } catch (e) { toast(e.message, 'err'); }
+    renderEggs();
+  };
+  const toggle = (checked, onChange) => {
+    const i = h('input', { type: 'checkbox' });
+    i.checked = checked;
+    i.addEventListener('change', () => onChange(i.checked));
+    return h('span', { class: 'switch' }, i, h('span'));
+  };
+  const row = (title, sub, ctl) => h('label', { class: 'srow', style: 'cursor:pointer' }, h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)), ctl);
+
+  // ── setup checklist ──
+  const steps = [
+    [st.botConfigured, 'Discord bot token', st.botConfigured ? 'DISCORD_BOT_TOKEN is set on the server' : 'Add DISCORD_BOT_TOKEN in Netlify environment variables, then redeploy'],
+    [!!s.channelId && !st.error && !!st.lastCheckAt, 'Egg channel', !s.channelId ? 'Paste your #egg-stock Channel ID below' : st.error ? st.error : st.lastCheckAt ? `Reading your channel · checked ${ago(st.lastCheckAt)}` : 'Waiting for the first check…'],
+    [st.youtubeBotReady, 'YouTube bot account', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}` : 'Connect a separate YouTube account (e.g. "SmartWolf Bot") that posts the messages',
+      !st.youtubeBotReady ? h('a', { class: 'btn sm primary', href: '/auth/youtube?bot=1' }, 'Connect bot') : null],
+    [st.kickChatReady, 'Kick bot permission', st.kickChatReady ? 'Your Kick app bot can post in your chat' : st.kickConnected ? 'Allow OmniChat to post in your Kick chat (needs "Write to Chat feed" in your Kick app)' : 'Connect Kick first',
+      !st.kickChatReady ? h('a', { class: 'btn sm primary', href: st.kickConnected ? '/auth/kick?chat=1' : '#connections' }, st.kickConnected ? 'Give permission' : 'Connect Kick') : null],
+    [st.ytLive || st.kickLive, 'Live status', `YouTube: ${st.ytLive ? 'LIVE' : 'offline'} · Kick: ${st.kickLive ? 'LIVE' : 'offline'} — the bot posts only where you are live`],
+  ];
+  const checklist = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('check'), h('h3', {}, 'Setup'), h('span', { class: 'sub' }, `${steps.filter((x) => x[0]).length} of ${steps.length} ready`)),
+    h('ul', { class: 'checklist' }, steps.map(([ok, title, sub, action]) =>
+      h('li', { class: ok ? 'done' : '' }, h('span', { class: 'check', html: icon('check') }), h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)), action))));
+
+  // ── settings ──
+  const chInput = h('input', { class: 'input', value: s.channelId, placeholder: 'e.g. 1569620117942173728', inputmode: 'numeric', 'aria-label': 'Discord channel ID' });
+  const chSave = h('button', { class: 'btn', type: 'button', onclick: () => save({ channelId: chInput.value.trim() }, 'Channel saved') }, 'Save');
+  const known = [...new Set([...(data.rarities || []), ...s.rarities])];
+  const chips = h('div', { class: 'quick' },
+    h('button', { type: 'button', class: 'btn sm' + (!s.rarities.length ? ' primary' : ''), onclick: () => save({ rarities: [] }) }, 'All eggs'),
+    known.map((r) => h('button', {
+      type: 'button', class: 'btn sm' + (s.rarities.includes(r) ? ' primary' : ''),
+      onclick: () => save({ rarities: s.rarities.includes(r) ? s.rarities.filter((x) => x !== r) : [...s.rarities, r] }),
+    }, r)));
+  const latest = items[0];
+  const preview = latest ? `🥚 ${latest.rarity ? latest.rarity + ' Egg' : 'Egg'} spawned: ${latest.name}${latest.location ? ' | 📍' + latest.location : ''}${latest.money ? ' | 💰' + latest.money : ''}${latest.speed ? ' | ⚡' + latest.speed : ''}` : '🥚 Secret Egg spawned: Stormclaw Wolf | 📍Stormlands | 💰~$36m/s | ⚡150M';
+
+  const settingsCard = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('egg'), h('h3', {}, 'Egg Bot'), h('div', { class: 'actions' },
+      h('span', { class: 'tag ' + (s.enabled ? 'ok' : '') }, s.enabled ? 'ON' : 'OFF'))),
+    row('Egg alerts', 'Master switch. ON = the bot posts every new egg from your Discord channel. OFF = the bot stays quiet.', toggle(s.enabled, (v) => save({ enabled: v }, v ? 'Egg alerts ON' : 'Egg alerts OFF'))),
+    row('Post in YouTube chat', st.youtubeBot ? `As ${st.youtubeBot.channelName}` : 'Needs the YouTube bot account', toggle(s.youtube, (v) => save({ youtube: v }))),
+    row('Post in Kick chat', 'As your Kick app bot', toggle(s.kick, (v) => save({ kick: v }))),
+    row('!egghistory command', 'Anyone can type !egghistory (YouTube or Kick) to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
+    st.youtubeBot ? h('div', { class: 'srow' },
+      h('div', { class: 'acct', style: 'flex:1' }, st.youtubeBot.avatar ? h('img', { src: st.youtubeBot.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'ph' }),
+        h('div', { class: 'meta' }, h('b', {}, st.youtubeBot.channelName), h('span', { class: 'muted tiny' }, 'YouTube bot account'))),
+      h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
+        if (!(await dialog({ title: 'Disconnect the YouTube bot?', text: 'Its token is revoked. Egg messages stop on YouTube until you connect a bot again.', confirm: 'Disconnect', danger: true }))) return;
+        try { await api('/api/eggs/bot', { method: 'DELETE' }); toast('Bot disconnected'); } catch (e) { toast(e.message, 'err'); }
+        renderEggs();
+      } }, 'Disconnect')) : null,
+    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
+      h('div', { class: 'txt' }, h('b', {}, 'Discord channel ID'), h('span', {}, 'Right-click #🥚-egg-stock → Copy Channel ID (Developer Mode on).')),
+      h('div', { class: 'wpick' }, chInput, chSave)),
+    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
+      h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce. Others are still saved in history.')), chips),
+    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
+      h('div', { class: 'txt' }, h('b', {}, 'Chat message preview'), h('span', {}, `Posted today: ${st.postedToday}/${st.dailyLimit} (YouTube quota guard)`)),
+      h('code', { class: 'egg-preview' }, preview),
+      h('div', {}, h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+        try {
+          const r = await api('/api/eggs/test', { method: 'POST' });
+          const ok = r.result.youtube === 'sent' || r.result.kick === 'sent';
+          toast(`YouTube: ${r.result.youtube} · Kick: ${r.result.kick}`, ok ? 'ok' : 'err');
+        } catch (e) { toast(e.message, 'err'); }
+      } }, ic('send'), 'Send test message'))));
+
+  // ── history ──
+  const history = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('clock'), h('h3', {}, 'Recent eggs'), h('span', { class: 'sub' }, `${items.length} saved · updates every 10 s`)),
+    items.length
+      ? h('div', { class: 'table-wrap', style: 'max-height:560px' }, h('table', { class: 'table' },
+        h('thead', {}, h('tr', {}, ['When', 'Egg', 'Details'].map((x) => h('th', {}, x)))),
+        h('tbody', {}, items.map((e) => h('tr', {},
+          h('td', { class: 'when', title: fmtTime(e.ts) }, h('b', {}, ago(e.ts)), new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+          h('td', {}, h('b', { class: 'who', style: 'display:block' }, e.name), rarityTag(e.rarity)),
+          h('td', { class: 'egg-details' }, e.location ? h('span', {}, `📍 ${e.location}`) : null, e.money ? h('span', {}, `💰 ${e.money}`) : null, e.speed ? h('span', {}, `⚡ ${e.speed}`) : null))))))
+      : h('div', { class: 'empty' }, ic('egg'), h('b', {}, 'No eggs yet'), s.channelId ? 'New spawns from your Discord channel will show up here.' : 'Add your Discord channel ID to start.'));
+
+  root.replaceChildren(h('div', { class: 'grid two' }, h('div', { class: 'grid', style: 'align-content:start' }, settingsCard), h('div', { class: 'grid', style: 'align-content:start' }, checklist, history)));
+}
+setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#page-eggs input')) renderEggs(); }, 10_000);
+
+// ═════════════════════════════════════════════════════════════════════
 //  Routing / shell
 // ═════════════════════════════════════════════════════════════════════
 function showPage(p) {
@@ -946,6 +1046,7 @@ function showPage(p) {
   if (page === 'overview') renderOverview();
   if (page === 'connections') renderConnections();
   if (page === 'logs') renderLogs();
+  if (page === 'eggs') renderEggs();
   if (page === 'settings') renderSettings();
 }
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));

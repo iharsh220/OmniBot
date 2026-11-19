@@ -27,6 +27,7 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
+DISCORD_BOT_TOKEN=    # Egg Bot (optional)
 # APP_SECRET=         # optional locally (auto-generated in data/secret.key)
 # PORT=3002
 ```
@@ -43,6 +44,7 @@ Locally the app always uses `http://localhost:3002` as its URL, and data is kept
    | `APP_SECRET` | **Required.** 64 random hex chars, never change it later: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from Google Cloud |
    | `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET` | from kick.com/settings/developer |
+   | `DISCORD_BOT_TOKEN` | Egg Bot only — from discord.com/developers → your app → Bot |
    | `APP_URL` | optional; only for a custom domain (Netlify provides its URL automatically) |
 
 3. **Google Cloud** → APIs & Services → enable **YouTube Data API v3**. Then Credentials → OAuth client (Web application) → Authorized redirect URI:
@@ -60,6 +62,15 @@ Locally the app always uses `http://localhost:3002` as its URL, and data is kept
 2. **OBS / Streamlabs:** Sources → **+** → **Browser** → paste the URL (chat 400 × 700, stats about 800 × 140).
    **Overlay apps** (e.g. [Transparent-Twitch-Chat-Overlay](https://github.com/baffler/Transparent-Twitch-Chat-Overlay)): paste the URL as the custom URL.
 3. Go live. Chat and stats appear within a few seconds.
+
+## 🥚 Egg Bot (Steal an Egg)
+
+Posts new egg spawns from your Discord channel (e.g. `#🥚-egg-stock`, filled by a notifier bot) into your **YouTube and Kick live chat**. You can switch it ON/OFF from the dashboard. Viewers can type **`!egghistory`** to see the last 10 eggs.
+
+- **Discord:** create a bot at discord.com/developers. Turn on *Message Content Intent*. Invite it with *View Channel + Read Message History*. Put its token in `DISCORD_BOT_TOKEN`.
+- **YouTube:** messages come from a **separate bot account** (another Google account with a YouTube channel). Connect it in the dashboard → **Egg Bot → Connect bot**. Make it a moderator in your chat.
+- **Kick:** messages come from your **Kick app's bot**. In your Kick app enable the scope *Write to Chat feed*, then click **Egg Bot → Give permission**.
+- Each YouTube message costs about 50 API quota units, so the bot posts at most `EGG_DAILY_POST_LIMIT` (120) messages per day.
 
 ## How it works on Netlify
 

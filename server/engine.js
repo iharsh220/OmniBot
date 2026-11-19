@@ -2,8 +2,10 @@
 // dashboard calls tick(), which does whatever YouTube/Kick work is due right now.
 import * as db from './store.js';
 import { addEvents, addLogs } from './feed.js';
-import { youtubeStep, youtubeDue } from './youtube.js';
-import { kickStep, kickDue } from './kick.js';
+import { youtubeStep, youtubeDue, postChat, youtubeBotReady } from './youtube.js';
+import { eggStep } from './eggs.js';
+import { config } from './config.js';
+import { kickStep, kickDue, postKickChat, kickChatReady } from './kick.js';
 import { updateUser } from './auth.js';
 
 const PLATFORMS = ['youtube', 'kick'];
@@ -20,7 +22,8 @@ export async function tick(user) {
   const now = Date.now();
   let live = (await db.get(`live/${uid}`)) || blankLive();
   const due = PLATFORMS.filter((p) => user.accounts?.[p] && DUE[p](live[p] || {}, now));
-  if (!due.length || live._lockUntil > now) return live;
+  const eggsDue = !!(user.egg?.channelId && config.discord.botToken && now >= (live.eggs?._nextAt || 0));
+  if ((!due.length && !eggsDue) || live._lockUntil > now) return live;
 
   // Short lock so several OBS sources polling at once don't repeat the same API calls.
   let claimed = false;
@@ -35,21 +38,50 @@ export async function tick(user) {
   const chats = [];
   const deletes = [];
   const logs = [];
+  const commands = [];
   const states = {};
   let accPatch = null;
   for (const p of PLATFORMS) {
     const acc = user.accounts?.[p];
     const st = { ...blankPlatform(), ...(live[p] || {}) };
     if (acc && due.includes(p)) {
-      const ctx = { uid, st, chats, deletes, logs, accPatch: null };
+      const ctx = { uid, st, chats, deletes, logs, commands, accPatch: null };
       try { await STEP[p](ctx, acc); } catch (e) { st.error = e.message; logs.push({ level: 'error', source: p, message: e.message }); }
       if (ctx.accPatch) accPatch = { p, patch: ctx.accPatch };
     }
     states[p] = acc ? st : blankPlatform();
   }
 
+  // Egg Bot: Discord → history → YouTube chat (announcements + !egghistory replies)
+  const eggState = { ...(live.eggs || {}) };
+  if (eggsDue || commands.length) {
+    const yt = states.youtube;
+    const es = user.egg || {};
+    const targets = {
+      youtube: es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user),
+      kick: es.kick !== false && !!states.kick.live && kickChatReady(user.accounts?.kick),
+    };
+    try {
+      const r = await eggStep({ uid, user, eggState, commands, targets });
+      logs.push(...r.logs);
+      const sent = { youtube: 0, kick: 0 };
+      for (const p of r.posts) {
+        try {
+          if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
+          else await postKickChat(uid, p.text);
+          sent[p.to] += 1;
+        } catch (e) { logs.push({ level: 'warn', source: 'eggs', message: `${p.to} chat post failed: ${e.message}` }); }
+      }
+      if (sent.youtube || sent.kick) logs.push({ level: 'info', source: 'eggs', message: `Egg Bot posted — YouTube: ${sent.youtube}, Kick: ${sent.kick}` });
+    } catch (e) {
+      eggState.error = e.message;
+      logs.push({ level: 'error', source: 'eggs', message: e.message });
+    }
+  }
+
   live = await db.update(`live/${uid}`, (L) => {
     for (const p of PLATFORMS) L[p] = states[p];
+    L.eggs = eggState;
     L._lockUntil = 0;
     L.updatedAt = Date.now();
     return L;

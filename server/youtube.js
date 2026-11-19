@@ -135,7 +135,11 @@ export async function youtubeStep(ctx, acc) {
         }
         if (type === 'messageDeletedEvent') { ctx.deletes.push(`yt-${item.snippet.messageDeletedDetails?.deletedMessageId}`); continue; }
         const msg = normalise(item);
-        if (msg && msg.ts >= (st._since || 0)) ctx.chats.push(msg);
+        if (msg && msg.ts >= (st._since || 0)) {
+          ctx.chats.push(msg);
+          const text = (msg.parts || []).map((p) => p.text || '').join('').trim();
+          if (/^!egghistory\b/i.test(text)) ctx.commands?.push(msg.author.name);
+        }
       }
       st._seenTypes = [...seen].slice(-50);
       if (j.offlineAt) endStream(st, L);
@@ -146,3 +150,21 @@ export async function youtubeStep(ctx, acc) {
     if (e.reconnect) st._nextLiveCheckAt = now + 10 * 60_000;
   }
 }
+
+/** Send a message to the live chat as the connected YouTube BOT account (youtube.force-ssl). ~50 quota units. */
+export async function postChat(uid, liveChatId, text) {
+  const token = await getAccessToken(uid, 'youtube', { bot: true });
+  const r = await tfetch(`${API}/liveChat/messages?part=snippet`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snippet: { liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText: String(text).slice(0, 200) } } }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error?.message || `HTTP ${r.status}`);
+  }
+}
+
+export const canWriteChat = (acc) => !!acc?.scope && acc.scope.includes('youtube.force-ssl');
+/** The Egg Bot posts on YouTube only through a separate bot account. */
+export const youtubeBotReady = (user) => canWriteChat(user?.ytBot);

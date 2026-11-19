@@ -168,3 +168,18 @@ export async function webhookToEvents(type, payload, messageId) {
   }
   return out;
 }
+
+/** Post in the streamer's Kick chat as your Kick app's BOT account (needs chat:write). Max 500 chars. */
+export async function postKickChat(uid, text) {
+  const token = await getAccessToken(uid, 'kick');
+  const r = await tfetch(`${API}/chat`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ content: String(text).slice(0, 500), type: 'bot' }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.message || `Kick chat HTTP ${r.status}`);
+  }
+}
+export const kickChatReady = (acc) => !!acc?.scope && acc.scope.split(/\s+/).includes('chat:write');
