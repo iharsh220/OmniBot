@@ -7,22 +7,8 @@
 [functions]
   node_bundler = "esbuild"
 
-# API, OAuth and webhooks → Express app (serverless-http)
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/api/:splat"
-  status = 200
-  force = true
-[[redirects]]
-  from = "/auth/*"
-  to = "/.netlify/functions/api/auth/:splat"
-  status = 200
-  force = true
-[[redirects]]
-  from = "/webhooks/*"
-  to = "/.netlify/functions/api/webhooks/:splat"
-  status = 200
-  force = true
+# API, OAuth and webhooks are routed by the function itself
+# (`export const config = { path: [...] }` in netlify/functions/api.mjs).
 
 # Pages
 [[redirects]]
