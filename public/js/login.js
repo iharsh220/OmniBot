@@ -1,9 +1,17 @@
 import { DEFAULTS, THEMES } from '/js/settings.js';
 import { ChatView } from '/js/render.js';
 import { startDemo } from '/js/feed.js';
+import { hydrateIcons, bindThemeSwitch } from '/js/icons.js';
+
+hydrateIcons();
+bindThemeSwitch(document.getElementById('theme-switch'));
 
 const err = new URLSearchParams(location.search).get('error');
-if (err) { const e = document.getElementById('error'); e.textContent = err; e.hidden = false; }
+if (err) {
+  document.getElementById('error-text').textContent = err.slice(0, 300);
+  document.getElementById('error').hidden = false;
+  history.replaceState(null, '', '/login');
+}
 
 fetch('/api/providers').then((r) => r.json()).then((p) => {
   for (const k of ['youtube', 'kick']) if (!p[k]) {

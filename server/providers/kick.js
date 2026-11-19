@@ -270,7 +270,14 @@ export class KickWatcher extends Watcher {
           ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
           break;
         case 'pusher:error':
-          this.log('warn', `Kick chat error: ${JSON.stringify(d)}`);
+          // 4000–4099: fatal (bad app key / cluster). Retrying won't help — stop and say so once.
+          if (d?.code >= 4000 && d?.code < 4100) {
+            this.socketDisabled = true;
+            this.log('error', `Kick live socket rejected (${d.code}: ${d.message}). Kick probably changed its Pusher key — set KICK_PUSHER_KEY / KICK_PUSHER_CLUSTER. Chat via webhooks is not affected; follower live updates pause until then.`);
+            try { ws.close(); } catch { /* ignore */ }
+          } else {
+            this.log('warn', `Kick socket error: ${JSON.stringify(d)}`);
+          }
           break;
         case 'App\\Events\\ChatMessageEvent': {
           const sender = d.sender || {};
@@ -310,6 +317,7 @@ export class KickWatcher extends Watcher {
       if (this.stopped) return;
       this.ws = null;
       this.update({ chatConnected: !!this.webhooks });
+      if (this.socketDisabled) return; // fatal config error — don't hammer Kick with retries
       this.log('warn', `Kick chat disconnected — reconnecting in ${this.backoff / 1000}s`);
       setTimeout(() => this.connectChat(), this.backoff);
       this.backoff = Math.min(this.backoff * 2, 60_000);

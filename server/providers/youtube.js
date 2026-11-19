@@ -43,8 +43,15 @@ function normalise(item) {
   }
 }
 
+const KNOWN_TYPES = new Set([
+  'textMessageEvent', 'superChatEvent', 'superStickerEvent', 'newSponsorEvent', 'memberMilestoneChatEvent',
+  'membershipGiftingEvent', 'giftMembershipReceivedEvent', 'messageDeletedEvent',
+  'userBannedEvent', 'chatEndedEvent', 'sponsorOnlyModeStartedEvent', 'sponsorOnlyModeEndedEvent',
+]);
+
 export class YouTubeWatcher extends Watcher {
   platform = 'youtube';
+  seenTypes = new Set();
 
   async yt(path, params) {
     const url = new URL(API + path);
@@ -169,6 +176,12 @@ export class YouTubeWatcher extends Watcher {
         if (item.snippet?.type === 'messageDeletedEvent') {
           this.hub.remove(`yt-${item.snippet.messageDeletedDetails?.deletedMessageId}`);
           continue;
+        }
+        const type = item.snippet?.type;
+        if (type && !KNOWN_TYPES.has(type) && !this.seenTypes.has(type)) {
+          // Surface new/unknown YouTube event types once, so we can see what the API really sends.
+          this.seenTypes.add(type);
+          this.log('info', `New YouTube chat event type: ${type}${item.snippet?.displayMessage ? ` — "${String(item.snippet.displayMessage).slice(0, 80)}"` : ''}`);
         }
         const msg = normalise(item);
         if (msg && msg.ts >= since) this.hub.chat(msg);

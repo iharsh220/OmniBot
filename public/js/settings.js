@@ -89,14 +89,44 @@ export function encodeSettings(s) {
   return p.toString();
 }
 
-/** Merge stored settings with defaults, dropping unknown keys / wrong types. */
+// Allowed values / ranges — enforced in the browser AND on the server (server imports this file).
+const ENUMS = {
+  theme: THEMES.map((t) => t.id),
+  font: Object.keys(FONTS),
+  nameColor: ['user', 'platform', 'accent', 'custom'],
+  animation: ['slide', 'fade', 'pop', 'none'],
+  direction: ['bottom', 'top'],
+  statsLayout: ['row', 'column', 'pill'],
+};
+const RANGES = {
+  fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
+  radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
+};
+const MAX_TEXT = { hideBots: 500 };
+
+function validValue(k, v, def) {
+  if (typeof v !== typeof def) return undefined;
+  if (typeof def === 'number') {
+    if (!Number.isFinite(v)) return undefined;
+    const [lo, hi] = RANGES[k] || [-1e6, 1e6];
+    return Math.min(hi, Math.max(lo, Math.round(v)));
+  }
+  if (typeof def === 'string') {
+    if (def.startsWith('#')) return isColor(v) ? v.toLowerCase() : undefined;
+    if (ENUMS[k]) return ENUMS[k].includes(v) ? v : undefined;
+    return v.replace(/[<>\u0000-\u001f]/g, '').slice(0, MAX_TEXT[k] || 100);
+  }
+  return v; // boolean
+}
+
+/** Merge settings with defaults: unknown keys dropped, wrong types/values rejected, numbers clamped. */
 export function normalizeSettings(obj = {}) {
   const s = { ...DEFAULTS };
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return s;
   for (const [k, def] of Object.entries(DEFAULTS)) {
-    const v = obj?.[k];
-    if (v === undefined || typeof v !== typeof def) continue;
-    if (typeof def === 'string' && def.startsWith('#') && !isColor(v)) continue;
-    s[k] = v;
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    const v = validValue(k, obj[k], def);
+    if (v !== undefined) s[k] = v;
   }
   return s;
 }
@@ -109,11 +139,11 @@ export function decodeSettings(search, base = DEFAULTS) {
     if (!p.has(k)) continue;
     const raw = p.get(k);
     if (typeof def === 'boolean') s[k] = raw === '1' || raw === 'true';
-    else if (typeof def === 'number') { const n = Number(raw); if (!Number.isNaN(n)) s[k] = n; }
-    else if (def.startsWith('#')) { const c = '#' + raw.replace('#', ''); if (isColor(c)) s[k] = c; }
+    else if (typeof def === 'number') s[k] = Number(raw);
+    else if (def.startsWith('#')) s[k] = '#' + raw.replace('#', '');
     else s[k] = raw;
   }
-  return s;
+  return normalizeSettings(s);
 }
 
 export function hexA(hex, pct) {

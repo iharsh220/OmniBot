@@ -4,9 +4,12 @@ import { config } from './config.js';
 import { db, encrypt, decrypt, randomId, sha256 } from './db.js';
 import { log } from './logger.js';
 
-const SESSION_COOKIE = 'oc_session';
-const SESSION_TTL = 30 * 86_400_000;
 const secureCookie = config.appUrl.startsWith('https://');
+// __Host- prefix (https only): cookie is locked to this exact host, Secure and Path=/.
+const SESSION_COOKIE = secureCookie ? '__Host-oc_session' : 'oc_session';
+const STATE_COOKIE = secureCookie ? '__Host-oc_oauth' : 'oc_oauth';
+const SESSION_TTL = 30 * 86_400_000;
+const STATE_TTL = 10 * 60_000;
 
 export const providersConfigured = () => ({
   youtube: !!(config.google.clientId && config.google.clientSecret),
@@ -28,19 +31,33 @@ export function parseCookies(req) {
 function cookie(name, value, maxAgeSec) {
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureCookie ? '; Secure' : ''}`;
 }
+/** Append a Set-Cookie header without overwriting earlier ones. */
+export function addCookie(res, value) {
+  const prev = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', prev ? [].concat(prev, value) : value);
+}
 
 export function createSession(res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
   db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(sha256(token), userId, now, now + SESSION_TTL);
-  res.setHeader('Set-Cookie', cookie(SESSION_COOKIE, token, SESSION_TTL / 1000));
+  addCookie(res, cookie(SESSION_COOKIE, token, SESSION_TTL / 1000));
 }
 
 export function destroySession(req, res) {
   const t = parseCookies(req)[SESSION_COOKIE];
   if (t) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(t));
-  res.setHeader('Set-Cookie', cookie(SESSION_COOKIE, '', 0));
+  addCookie(res, cookie(SESSION_COOKIE, '', 0));
 }
+
+/** Sign out everywhere: removes every session of this user. */
+export function destroyAllSessions(userId, res) {
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  if (res) addCookie(res, cookie(SESSION_COOKIE, '', 0));
+}
+
+export const sessionCount = (userId) =>
+  db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND expires_at > ?').get(userId, Date.now()).n;
 
 export function currentUser(req) {
   const t = parseCookies(req)[SESSION_COOKIE];
@@ -51,19 +68,26 @@ export function currentUser(req) {
   return row || null;
 }
 
-// ── OAuth state (in memory, 10 min) ────────────────────────────────────
+// ── OAuth state (server memory + bound to this browser by a cookie → blocks login CSRF) ──
 const pending = new Map();
 function newState(data) {
   const state = randomId(24);
   pending.set(state, { ...data, at: Date.now() });
-  for (const [k, v] of pending) if (Date.now() - v.at > 10 * 60_000) pending.delete(k);
+  for (const [k, v] of pending) if (Date.now() - v.at > STATE_TTL) pending.delete(k);
   return state;
 }
-function takeState(state) {
+function takeState(state, cookieState) {
+  if (!state || !cookieState) return null;
+  const a = Buffer.from(String(state));
+  const b = Buffer.from(String(cookieState));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   const v = pending.get(state);
   pending.delete(state);
-  return v && Date.now() - v.at < 10 * 60_000 ? v : null;
+  return v && Date.now() - v.at < STATE_TTL ? v : null;
 }
+export const stateCookieName = STATE_COOKIE;
+export const setStateCookie = (res, state) => addCookie(res, cookie(STATE_COOKIE, state, STATE_TTL / 1000));
+export const clearStateCookie = (res) => addCookie(res, cookie(STATE_COOKIE, '', 0));
 
 // ── Authorize URLs ─────────────────────────────────────────────────────
 export function authorizeUrl(provider, linkUserId) {
@@ -77,10 +101,9 @@ export function authorizeUrl(provider, linkUserId) {
       scope: 'https://www.googleapis.com/auth/youtube.readonly',
       access_type: 'offline',
       prompt: 'consent select_account',
-      include_granted_scopes: 'true',
       state,
     });
-    return u.toString();
+    return { url: u.toString(), state };
   }
   if (provider === 'kick') {
     const verifier = crypto.randomBytes(32).toString('base64url');
@@ -96,7 +119,7 @@ export function authorizeUrl(provider, linkUserId) {
       code_challenge_method: 'S256',
       state,
     });
-    return u.toString();
+    return { url: u.toString(), state };
   }
   throw new Error('Unknown provider');
 }
@@ -216,8 +239,8 @@ export function ensureDefaultWidgets(userId) {
   ins.run(randomId(), userId, 'stats', 'My stats', '{}', now, now);
 }
 
-export async function handleCallback(provider, query) {
-  const st = takeState(query.get('state'));
+export async function handleCallback(provider, query, cookieState) {
+  const st = takeState(query.get('state'), cookieState);
   if (!st || st.provider !== provider) throw new Error('Login expired or invalid — please try again.');
   if (query.get('error')) throw new Error(query.get('error_description') || query.get('error'));
   const code = query.get('code');
@@ -259,4 +282,29 @@ export async function getAccessToken(accountId) {
 
 export function publicAccount(a) {
   return { provider: a.provider, channelId: a.channel_id, channelName: a.channel_name, channelSlug: a.channel_slug, avatar: a.avatar, connectedAt: a.created_at, chatroomId: a.kick_chatroom_id ?? null, kickChannelId: a.kick_channel_id ?? null, followers: a.kick_followers ?? null };
+}
+
+// ── Revoke + delete (privacy) ─────────────────────────────────────────
+/** Best-effort token revocation at the provider, so access ends immediately. */
+export async function revokeAccount(acc) {
+  const token = decrypt(acc.refresh_token) || decrypt(acc.access_token);
+  if (!token) return;
+  try {
+    if (acc.provider === 'youtube') {
+      await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) });
+    } else {
+      const u = new URL('https://id.kick.com/oauth/revoke');
+      u.search = new URLSearchParams({ token, token_hint_type: acc.refresh_token ? 'refresh_token' : 'access_token' });
+      await fetch(u, { method: 'POST' });
+    }
+  } catch { /* ignore network errors */ }
+}
+
+/** Permanently delete a user and everything stored about them. */
+export async function deleteUser(userId) {
+  const accounts = db.prepare('SELECT * FROM accounts WHERE user_id = ?').all(userId);
+  await Promise.all(accounts.map(revokeAccount));
+  db.prepare('DELETE FROM messages WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM logs WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId); // cascades: accounts, sessions, widgets
 }

@@ -4,11 +4,14 @@ import path from 'node:path';
 import { config } from './config.js';
 import { db, randomId, prune } from './db.js';
 import { log } from './logger.js';
-import { getHub, peekHub, heartbeat } from './hub.js';
+import { getHub, peekHub, heartbeat, dropHub, dropWidgetClients } from './hub.js';
+import { normalizeSettings } from '../public/js/settings.js';
 import { verifyKickWebhook, handleKickWebhook } from './providers/kick.js';
 import {
   authorizeUrl, handleCallback, currentUser, createSession, destroySession,
   providersConfigured, publicAccount, ensureDefaultWidgets, redirectUri,
+  destroyAllSessions, sessionCount, setStateCookie, clearStateCookie, stateCookieName,
+  parseCookies, revokeAccount, deleteUser,
 } from './auth.js';
 
 const PUBLIC = path.join(config.root, 'public');
@@ -27,7 +30,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self'",
+  // kick.com: the streamer's own browser reads their public channel info (followers, ids) for auto-sync.
+  "connect-src 'self' https://kick.com",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
@@ -39,7 +43,9 @@ function securityHeaders(res, { embeddable = false } = {}) {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   // Widgets must load inside OBS / overlay apps / iframes; the dashboard must not be framed (clickjacking).
-  res.setHeader('Content-Security-Policy', CSP + (embeddable ? '' : "; frame-ancestors 'none'"));
+  res.setHeader('Content-Security-Policy', CSP + (embeddable ? '' : "; frame-ancestors 'none'") + (HTTPS ? '; upgrade-insecure-requests' : ''));
+  res.setHeader('Cross-Origin-Resource-Policy', embeddable ? 'cross-origin' : 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (!embeddable) res.setHeader('X-Frame-Options', 'DENY');
   if (HTTPS) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 }
@@ -76,10 +82,10 @@ function sseAllowed(req, res) {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────
-function sendFile(res, rel) {
+function sendFile(res, rel, { noStore = false } = {}) {
   const file = path.normalize(path.join(PUBLIC, rel));
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return notFound(res);
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': noStore ? 'no-store' : 'no-cache' });
   fs.createReadStream(file).pipe(res);
 }
 const json = (res, code, data) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
@@ -132,15 +138,7 @@ function sameOrigin(req) {
 
 const widgetRow = (w) => ({ id: w.id, type: w.type, name: w.name, settings: JSON.parse(w.settings || '{}'), updatedAt: w.updated_at });
 
-function cleanSettings(s) {
-  if (!s || typeof s !== 'object' || Array.isArray(s)) return {};
-  const out = {};
-  for (const [k, v] of Object.entries(s)) {
-    if (!/^[a-zA-Z]{1,40}$/.test(k)) continue;
-    if (['string', 'number', 'boolean'].includes(typeof v)) out[k] = typeof v === 'string' ? v.slice(0, 500) : v;
-  }
-  return out;
-}
+const cleanName = (v) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 60);
 
 // ── routes ─────────────────────────────────────────────────────────────
 async function route(req, res) {
@@ -161,13 +159,17 @@ async function route(req, res) {
     const provider = m[1];
     if (!providersConfigured()[provider]) return redirect(res, `/login?error=${encodeURIComponent(`${provider} login is not configured on this server`)}`);
     const user = currentUser(req);
-    return redirect(res, authorizeUrl(provider, user?.id));
+    const { url: to, state } = authorizeUrl(provider, user?.id);
+    setStateCookie(res, state);
+    return redirect(res, to);
   }
   m = p.match(/^\/auth\/(youtube|kick)\/callback$/);
   if (m && method === 'GET') {
     const user = currentUser(req);
     try {
-      const { userId, linked } = await handleCallback(m[1], url.searchParams);
+      const cookieState = parseCookies(req)[stateCookieName];
+      clearStateCookie(res);
+      const { userId, linked } = await handleCallback(m[1], url.searchParams, cookieState);
       if (!linked || !user) createSession(res, userId);
       return redirect(res, linked ? '/#connections' : '/');
     } catch (e) {
@@ -178,6 +180,14 @@ async function route(req, res) {
   if (p === '/auth/logout' && method === 'POST') {
     if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
     destroySession(req, res);
+    return json(res, 200, { ok: true });
+  }
+  if (p === '/auth/logout-all' && method === 'POST') {
+    if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+    const user = currentUser(req);
+    if (!user) return json(res, 401, { error: 'Not logged in' });
+    destroyAllSessions(user.id, res);
+    log(user.id, 'info', 'auth', 'Signed out from all devices');
     return json(res, 200, { ok: true });
   }
 
@@ -210,11 +220,11 @@ async function route(req, res) {
   // ── Pages ──
   if (p === '/login' && method === 'GET') {
     if (currentUser(req)) return redirect(res, '/');
-    return sendFile(res, 'login.html');
+    return sendFile(res, 'login.html', { noStore: true });
   }
   if (p === '/' && method === 'GET') {
     if (!currentUser(req)) return redirect(res, '/login');
-    return sendFile(res, 'index.html');
+    return sendFile(res, 'index.html', { noStore: true });
   }
   if (p === '/demo' && method === 'GET') return sendFile(res, 'widget.html');
 
@@ -233,9 +243,38 @@ async function route(req, res) {
       const accounts = db.prepare('SELECT * FROM accounts WHERE user_id = ?').all(uid).map(publicAccount);
       const widgets = db.prepare('SELECT * FROM widgets WHERE user_id = ? ORDER BY created_at').all(uid).map(widgetRow);
       return json(res, 200, {
-        user: { id: uid, name: user.name, avatar: user.avatar, createdAt: user.created_at },
+        user: { id: uid, name: user.name, avatar: user.avatar, createdAt: user.created_at, historyDays: user.history_days ?? 7, sessions: sessionCount(uid) },
         accounts, widgets, providers: providersConfigured(), appUrl: config.appUrl,
       });
+    }
+
+    if (p === '/api/me/settings' && method === 'PUT') {
+      const body = await readJson(req);
+      const days = Number(body.historyDays);
+      if (![0, 1, 7, 30].includes(days)) return json(res, 400, { error: 'historyDays must be 0, 1, 7 or 30' });
+      db.prepare('UPDATE users SET history_days = ? WHERE id = ?').run(days, uid);
+      if (days === 0) db.prepare('DELETE FROM messages WHERE user_id = ?').run(uid);
+      else db.prepare('DELETE FROM messages WHERE user_id = ? AND ts < ?').run(uid, Date.now() - days * 86_400_000);
+      const h = peekHub(uid);
+      if (h) h.historyDays = days;
+      log(uid, 'info', 'system', days ? `Chat history retention set to ${days} day(s)` : 'Chat history saving turned off');
+      return json(res, 200, { ok: true, historyDays: days });
+    }
+
+    if (p === '/api/me' && method === 'DELETE') {
+      const body = await readJson(req);
+      if (body.confirm !== 'DELETE') return json(res, 400, { error: 'Type DELETE to confirm' });
+      dropHub(uid);
+      await deleteUser(uid);
+      addSetCookieClear(res);
+      console.log(`[auth] user ${uid} deleted their account`);
+      return json(res, 200, { ok: true });
+    }
+
+    if (p === '/api/messages' && method === 'DELETE') {
+      db.prepare('DELETE FROM messages WHERE user_id = ?').run(uid);
+      log(uid, 'info', 'system', 'Chat history cleared');
+      return json(res, 200, { ok: true });
     }
 
     if (p === '/api/events' && method === 'GET') {
@@ -247,6 +286,8 @@ async function route(req, res) {
     if (m && method === 'DELETE') {
       const n = db.prepare('SELECT COUNT(*) AS n FROM accounts WHERE user_id = ?').get(uid).n;
       if (n <= 1) return json(res, 400, { error: 'You need at least one connected account to log in. Connect the other platform first.' });
+      const acc = db.prepare('SELECT * FROM accounts WHERE user_id = ? AND provider = ?').get(uid, m[1]);
+      if (acc) await revokeAccount(acc);
       db.prepare('DELETE FROM accounts WHERE user_id = ? AND provider = ?').run(uid, m[1]);
       log(uid, 'info', 'auth', `${m[1]} disconnected`);
       peekHub(uid)?.restart();
@@ -265,11 +306,21 @@ async function route(req, res) {
       if (Object.values(vals).some((v) => Number.isNaN(v))) return json(res, 400, { error: 'Values must be numbers' });
       const sets = Object.entries(vals).filter(([, v]) => v !== undefined);
       if (!sets.length) return json(res, 400, { error: 'Nothing to save — paste the page text or a chatroom ID' });
-      const r = db.prepare(`UPDATE accounts SET ${sets.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE user_id = ? AND provider = 'kick'`)
-        .run(...sets.map(([, v]) => v), Date.now(), uid);
-      if (!r.changes) return json(res, 400, { error: 'Connect Kick first' });
-      log(uid, 'info', 'kick', `Synced from Kick page: ${sets.map(([k, v]) => `${k.replace('kick_', '')}=${v}`).join(', ')}`);
-      getHub(uid).restart();
+      const before = db.prepare("SELECT * FROM accounts WHERE user_id = ? AND provider = 'kick'").get(uid);
+      if (!before) return json(res, 400, { error: 'Connect Kick first' });
+      const changed = sets.filter(([k, v]) => before[k] !== v);
+      if (changed.length) {
+        db.prepare(`UPDATE accounts SET ${sets.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+          .run(...sets.map(([, v]) => v), Date.now(), before.id);
+        log(uid, 'info', 'kick', `${body.auto ? 'Auto-synced' : 'Synced'} from Kick: ${changed.map(([k, v]) => `${k.replace('kick_', '')}=${v}`).join(', ')}`);
+        const idsChanged = changed.some(([k]) => k !== 'kick_followers');
+        const h = getHub(uid);
+        if (idsChanged) h.restart(); // reconnect sockets with the new ids
+        else {
+          const f = vals.kick_followers;
+          if (f !== undefined) { if (h.watchers.kick) h.watchers.kick.account.kick_followers = f; h.update('kick', { followers: f }); }
+        }
+      }
       const acc = db.prepare("SELECT * FROM accounts WHERE user_id = ? AND provider = 'kick'").get(uid);
       return json(res, 200, { ok: true, account: publicAccount(acc), chatroomId: acc.kick_chatroom_id });
     }
@@ -288,7 +339,17 @@ async function route(req, res) {
       const id = randomId();
       const now = Date.now();
       db.prepare('INSERT INTO widgets (id, user_id, type, name, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, uid, type, String(body.name || `New ${type} widget`).slice(0, 60), JSON.stringify(cleanSettings(body.settings)), now, now);
+        .run(id, uid, type, cleanName(body.name) || `New ${type} widget`, JSON.stringify(normalizeSettings(body.settings)), now, now);
+      return json(res, 200, widgetRow(db.prepare('SELECT * FROM widgets WHERE id = ?').get(id)));
+    }
+    m = p.match(/^\/api\/widgets\/([\w-]{6,40})\/rotate$/);
+    if (m && method === 'POST') {
+      const w = db.prepare('SELECT * FROM widgets WHERE id = ? AND user_id = ?').get(m[1], uid);
+      if (!w) return json(res, 404, { error: 'Widget not found' });
+      const id = randomId();
+      db.prepare('UPDATE widgets SET id = ?, updated_at = ? WHERE id = ?').run(id, Date.now(), w.id);
+      dropWidgetClients(uid, w.id);
+      log(uid, 'info', 'system', `Widget "${w.name}" got a new URL (old URL disabled)`);
       return json(res, 200, widgetRow(db.prepare('SELECT * FROM widgets WHERE id = ?').get(id)));
     }
     m = p.match(/^\/api\/widgets\/([\w-]{6,40})$/);
@@ -297,14 +358,15 @@ async function route(req, res) {
       if (!w) return json(res, 404, { error: 'Widget not found' });
       if (method === 'PUT') {
         const body = await readJson(req);
-        const name = body.name !== undefined ? String(body.name).slice(0, 60) || w.name : w.name;
-        const settings = body.settings !== undefined ? JSON.stringify(cleanSettings(body.settings)) : w.settings;
+        const name = body.name !== undefined ? cleanName(body.name) || w.name : w.name;
+        const settings = body.settings !== undefined ? JSON.stringify(normalizeSettings(body.settings)) : w.settings;
         db.prepare('UPDATE widgets SET name = ?, settings = ?, updated_at = ? WHERE id = ?').run(name, settings, Date.now(), w.id);
         peekHub(uid)?.widgetSettings(w.id, { settings: JSON.parse(settings) }); // live-update open overlays
         return json(res, 200, widgetRow(db.prepare('SELECT * FROM widgets WHERE id = ?').get(w.id)));
       }
       if (method === 'DELETE') {
         db.prepare('DELETE FROM widgets WHERE id = ?').run(w.id);
+        dropWidgetClients(uid, w.id);
         return json(res, 200, { ok: true });
       }
     }
@@ -312,9 +374,12 @@ async function route(req, res) {
     if (p === '/api/logs' && method === 'GET') {
       const limit = Math.min(500, Number(url.searchParams.get('limit')) || 200);
       const level = url.searchParams.get('level');
-      const rows = level
-        ? db.prepare('SELECT * FROM logs WHERE user_id = ? AND level = ? ORDER BY id DESC LIMIT ?').all(uid, level, limit)
-        : db.prepare('SELECT * FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT ?').all(uid, limit);
+      const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
+      const where = ['user_id = ?'];
+      const args = [uid];
+      if (['info', 'warn', 'error'].includes(level)) { where.push('level = ?'); args.push(level); }
+      if (q) { where.push('(message LIKE ? OR source LIKE ?)'); args.push(`%${q}%`, `%${q}%`); }
+      const rows = db.prepare(`SELECT id, ts, level, source, message FROM logs WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`).all(...args, limit);
       return json(res, 200, rows);
     }
     if (p === '/api/logs' && method === 'DELETE') {
@@ -324,7 +389,7 @@ async function route(req, res) {
 
     if (p === '/api/messages' && method === 'GET') {
       const limit = Math.min(500, Number(url.searchParams.get('limit')) || 200);
-      const q = (url.searchParams.get('q') || '').trim();
+      const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
       const platform = url.searchParams.get('platform');
       const where = ['user_id = ?'];
       const args = [uid];
@@ -343,13 +408,22 @@ async function route(req, res) {
   return notFound(res);
 }
 
-const server = http.createServer((req, res) => {
+function addSetCookieClear(res) {
+  destroySession({ headers: {} }, res); // just clears the cookie in the browser
+}
+
+const server = http.createServer({ maxHeaderSize: 16_384 }, (req, res) => {
   route(req, res).catch((e) => {
     console.error(e);
     if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'Server error' });
     else res.end();
   });
 });
+
+// Slow-client protection (SSE streams are long-lived, so no overall request timeout).
+server.headersTimeout = 15_000;
+server.requestTimeout = 0;
+server.keepAliveTimeout = 5_000;
 
 setInterval(heartbeat, 20_000);
 prune();

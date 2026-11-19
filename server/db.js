@@ -82,7 +82,8 @@ CREATE INDEX IF NOT EXISTS messages_user_ts ON messages (user_id, ts);
 for (const sql of [
   'ALTER TABLE accounts ADD COLUMN kick_chatroom_id INTEGER',
   'ALTER TABLE accounts ADD COLUMN kick_channel_id INTEGER',   // Kick internal channel id (not the user id), for follower events
-  'ALTER TABLE accounts ADD COLUMN kick_followers INTEGER',    // last known follower total
+  'ALTER TABLE accounts ADD COLUMN kick_followers INTEGER',
+  'ALTER TABLE users ADD COLUMN history_days INTEGER NOT NULL DEFAULT 7',  // chat history retention chosen by the user (0 = off)    // last known follower total
 ]) {
   try { db.exec(sql); } catch { /* column already exists */ }
 }
@@ -118,4 +119,7 @@ export function prune() {
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
   db.prepare('DELETE FROM logs WHERE ts < ?').run(now - 14 * DAY);
   db.prepare('DELETE FROM messages WHERE ts < ?').run(now - 30 * DAY);
+  // Per-user retention (0 = keep nothing).
+  db.prepare('DELETE FROM messages WHERE ts < ? - COALESCE((SELECT history_days FROM users WHERE users.id = messages.user_id), 7) * ?').run(now, DAY);
+  db.prepare('DELETE FROM messages WHERE user_id NOT IN (SELECT id FROM users)').run();
 }

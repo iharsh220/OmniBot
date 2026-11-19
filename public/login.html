@@ -3,43 +3,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OmniChat — Login</title>
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>Sign in · OmniChat</title>
+  <meta name="description" content="Combine your YouTube and Kick live chat into one beautiful overlay for OBS." />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script src="/js/theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="/css/widget.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
 </head>
 <body class="login-page">
-  <div class="login-bg"></div>
+  <header class="login-top">
+    <div class="brand"><img src="/favicon.svg" alt="" /><div><b>OmniChat</b><small>Stream Studio</small></div></div>
+    <div class="theme-switch" id="theme-switch" role="group" aria-label="Theme"></div>
+  </header>
+
   <main class="login-wrap">
     <section class="login-hero">
-      <div class="brand big"><img src="/favicon.svg" alt="" /><div><strong>OmniChat</strong><span>Studio</span></div></div>
-      <h1>YouTube + Kick chat.<br /><em>One beautiful overlay.</em></h1>
-      <p>Connect your channels, pick one of 10 themes or design your own, and drop a single URL into OBS, Streamlabs or any transparent chat overlay app.</p>
+      <span class="eyebrow"><span data-icon="sparkles"></span>YouTube + Kick, together</span>
+      <h1>All your live chat.<br /><em>One beautiful overlay.</em></h1>
+      <p>Connect your channels, pick one of 10 themes or design your own, and drop a single URL into OBS, Streamlabs or any transparent overlay app.</p>
       <ul class="perks">
-        <li>💬 Combined live chat from YouTube &amp; Kick</li>
-        <li>📊 Live viewers, subscribers &amp; followers</li>
-        <li>🎨 10 themes + full custom design, transparent backgrounds</li>
-        <li>🔗 Saved widget URLs that update live when you edit them</li>
+        <li><span class="pi"><span data-icon="message"></span></span><div><b>Unified chat</b>YouTube &amp; Kick in one feed</div></li>
+        <li><span class="pi"><span data-icon="chart"></span></span><div><b>Live stats</b>Viewers, subs &amp; followers</div></li>
+        <li><span class="pi"><span data-icon="palette"></span></span><div><b>Fully custom</b>10 themes, transparent background</div></li>
+        <li><span class="pi"><span data-icon="zap"></span></span><div><b>Live URLs</b>Edits appear instantly in OBS</div></li>
       </ul>
     </section>
-    <section class="login-card">
-      <h2>Sign in</h2>
-      <p class="muted">Login with either platform. You can connect the other one later from your dashboard.</p>
-      <div class="login-error" id="error" hidden></div>
+
+    <section class="card login-card">
+      <h2>Welcome 👋</h2>
+      <p class="muted" style="margin:0">Sign in with the platform you stream on. You can connect the other one later.</p>
+      <div class="notice bad" id="error" hidden style="margin-top:14px"><span data-icon="alert"></span><div id="error-text"></div></div>
+
       <a class="login-btn yt" id="btn-youtube" href="/auth/youtube">
-        <svg viewBox="0 0 24 24"><rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#ff0033"/><path d="M10 9v6l5.2-3z" fill="#fff"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#ff0033"/><path d="M10 9v6l5.2-3z" fill="#fff"/></svg>
         Continue with YouTube
       </a>
       <a class="login-btn kick" id="btn-kick" href="/auth/kick">
-        <svg viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#0b0b0b"/><path d="M6 5h4v4h2V7h2V5h4v6h-2v2h2v6h-4v-2h-2v-2h-2v4H6z" fill="#53fc18"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#0b0b0b"/><path d="M6 5h4v4h2V7h2V5h4v6h-2v2h2v6h-4v-2h-2v-2h-2v4H6z" fill="#53fc18"/></svg>
         Continue with Kick
       </a>
-      <p class="tiny muted">We only request read-only access to your channel. Tokens are stored encrypted on this server.</p>
-      <div class="login-demo">
-        <div class="tiny muted">Live preview</div>
-        <div class="login-demo-box"><div id="demo"></div></div>
-      </div>
+      <div class="trust"><span data-icon="shield"></span>Read-only access · encrypted tokens · delete your data any time</div>
+
+      <div class="divider">Live preview</div>
+      <div class="login-demo"><div id="demo"></div></div>
     </section>
   </main>
   <script type="module" src="/js/login.js"></script>

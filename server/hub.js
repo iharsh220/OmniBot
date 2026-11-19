@@ -52,6 +52,7 @@ class UserHub {
 
   /** Pull connected accounts from the DB into state. */
   syncAccounts() {
+    this.historyDays = db.prepare('SELECT history_days FROM users WHERE id = ?').get(this.userId)?.history_days ?? 7;
     const rows = db.prepare('SELECT * FROM accounts WHERE user_id = ?').all(this.userId);
     for (const p of Object.keys(WATCHERS)) {
       const acc = rows.find((r) => r.provider === p);
@@ -117,7 +118,7 @@ class UserHub {
     if (this.seen.size > 5000) this.seen.delete(this.seen.values().next().value);
     this.history.push(msg);
     if (this.history.length > HISTORY_MAX) this.history.shift();
-    try {
+    if (this.historyDays > 0) try {
       const text = (msg.parts || []).map((p) => (p.type === 'emote' ? `:${p.name}:` : p.text)).join('') || msg.eventText || '';
       insertMsg.run(msg.id, this.userId, msg.platform, msg.ts, msg.kind, msg.author?.name || '', text, JSON.stringify(msg));
     } catch { /* ignore */ }
@@ -155,3 +156,18 @@ logEvents.on('log', (row) => {
   if (!row.user_id) return;
   hubs.get(row.user_id)?.broadcast('log', row, (c) => c.kind === 'dashboard');
 });
+
+/** Close every live connection of a user (e.g. account deleted / signed out everywhere). */
+export function dropHub(userId) {
+  const h = hubs.get(userId);
+  if (!h) return;
+  for (const w of Object.values(h.watchers)) w.stop();
+  for (const c of h.clients) { try { c.res.end(); } catch { /* ignore */ } }
+  hubs.delete(userId);
+}
+/** Disconnect overlays still using an old widget URL. */
+export function dropWidgetClients(userId, widgetId) {
+  const h = hubs.get(userId);
+  if (!h) return;
+  for (const c of h.clients) if (c.widgetId === widgetId) { try { c.res.end(); } catch { /* ignore */ } }
+}

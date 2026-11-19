@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>OmniChat Studio</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script src="/js/theme.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
@@ -12,122 +14,97 @@
   <link rel="stylesheet" href="/css/dashboard.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><img src="/favicon.svg" alt="" /><div><strong>OmniChat</strong><span>Studio</span></div></div>
-    <nav class="nav">
-      <a href="#studio" data-page="studio">🎨 Studio</a>
-      <a href="#connections" data-page="connections">🔌 Connections</a>
-      <a href="#logs" data-page="logs">📜 Logs</a>
-    </nav>
-    <div class="top-right">
-      <div class="status">
-        <div class="chip" id="chip-server"><i></i><span>Server</span></div>
-        <div class="chip" id="chip-youtube"><i></i><span>YouTube</span></div>
-        <div class="chip" id="chip-kick"><i></i><span>Kick</span></div>
-      </div>
-      <div class="user">
-        <div class="user-av" id="user-av"></div>
-        <span id="user-name"></span>
-        <button class="btn small ghost" id="logout">Log out</button>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <a class="brand" href="#overview"><img src="/favicon.svg" alt="" /><div><b>OmniChat</b><small>Stream Studio</small></div></a>
+
+    <div class="nav-label">Workspace</div>
+    <a class="nav-item" data-page="overview" href="#overview"><span data-icon="home"></span>Overview<span class="dot-live" id="nav-live" hidden></span></a>
+    <a class="nav-item" data-page="studio" href="#studio"><span data-icon="palette"></span>Studio<span class="count" id="nav-widgets">0</span></a>
+    <a class="nav-item" data-page="connections" href="#connections"><span data-icon="plug"></span>Connections</a>
+    <a class="nav-item" data-page="logs" href="#logs"><span data-icon="logs"></span>Logs</a>
+
+    <div class="nav-label">Account</div>
+    <a class="nav-item" data-page="settings" href="#settings"><span data-icon="settings"></span>Settings</a>
+
+    <div class="sidebar-foot">
+      <div class="theme-switch" id="theme-switch" role="group" aria-label="Theme"></div>
+      <div class="user-card">
+        <div class="avatar" id="user-av"></div>
+        <div class="meta"><b id="user-name">…</b><span id="user-sub"></span></div>
+        <button class="btn ghost sm icon" id="logout" title="Sign out" aria-label="Sign out"><span data-icon="logout"></span></button>
       </div>
     </div>
-  </header>
+  </aside>
+  <div class="scrim" id="scrim"></div>
 
-  <!-- ═══ STUDIO ═══ -->
-  <div class="page layout" id="page-studio">
-    <aside class="panel">
-      <section class="block widget-picker">
-        <div class="block-title static">Your widgets <span class="save-state" id="save-state"></span></div>
-        <div class="block-body">
-          <div class="picker-row">
-            <select id="widget-select"></select>
-            <button class="btn small" id="new-chat" title="New chat widget">+ Chat</button>
-            <button class="btn small" id="new-stats" title="New stats widget">+ Stats</button>
+  <div class="main">
+    <header class="topbar">
+      <button class="btn ghost icon menu-btn" id="menu-btn" aria-label="Open menu"><span data-icon="menu"></span></button>
+      <div><h1 id="page-title">Overview</h1><p id="page-sub"></p></div>
+      <div class="spacer"></div>
+      <div class="status-pills">
+        <span class="pill" id="pill-server"><span class="dot"></span>Server</span>
+        <span class="pill" id="pill-youtube"><span class="dot"></span>YouTube</span>
+        <span class="pill" id="pill-kick"><span class="dot"></span>Kick</span>
+      </div>
+    </header>
+
+    <section class="page" id="page-overview" hidden></section>
+
+    <section class="page full" id="page-studio" hidden>
+      <div class="studio">
+        <div class="config">
+          <div class="config-head">
+            <div class="wpick">
+              <select class="select" id="widget-select" aria-label="Widget"></select>
+              <button class="btn primary icon" id="new-widget" title="New widget" aria-label="New widget"><span data-icon="plus"></span></button>
+            </div>
+            <div class="wname">
+              <input class="input" id="widget-name" maxlength="60" placeholder="Widget name" aria-label="Widget name" />
+              <span class="save-state" id="save-state"></span>
+            </div>
           </div>
-          <div class="picker-row">
-            <input type="text" id="widget-name" maxlength="60" placeholder="Widget name" />
-            <button class="btn small ghost danger" id="delete-widget" title="Delete widget">🗑</button>
+          <div class="config-body" id="config-body"></div>
+        </div>
+
+        <div class="preview-col">
+          <div class="card urlcard">
+            <div class="urlrow">
+              <input class="url" id="url" readonly spellcheck="false" aria-label="Widget URL" />
+              <button class="btn primary" id="copy"><span data-icon="copy"></span>Copy URL</button>
+              <a class="btn" id="open" target="_blank" rel="noopener noreferrer"><span data-icon="external"></span>Open</a>
+              <button class="btn icon" id="rotate" title="Generate a new URL (old one stops working)" aria-label="Regenerate URL"><span data-icon="key"></span></button>
+            </div>
+            <div class="urlhint">
+              <span><span data-icon="monitor"></span>OBS → Sources → Browser</span>
+              <span><span data-icon="layout"></span>Size <b id="size-hint">400 × 700</b></span>
+              <span><span data-icon="zap"></span>Edits go live instantly — no need to re-copy</span>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="seg" id="feed-mode"><button data-v="demo" class="on">Demo chat</button><button data-v="live">My live chat</button></div>
+            <div class="seg" id="backdrop">
+              <button data-v="game" class="on">Game</button><button data-v="checker">Transparent</button>
+              <button data-v="dark">Dark</button><button data-v="light">Light</button><button data-v="green">Green</button>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn sm ghost" id="clear"><span data-icon="refresh"></span>Clear preview</button>
+          </div>
+          <div class="stage bd-game" id="stage">
+            <div class="frame chat-frame" id="chat-frame" data-size="400 × 700 · OBS size"><div id="chat-preview"></div></div>
+            <div class="frame stats-frame" id="stats-frame" data-size="Stats widget" hidden><div id="stats-preview"></div></div>
           </div>
         </div>
-      </section>
-
-      <section class="block">
-        <div class="block-title static">Theme <span class="muted tiny">10 presets · tweak anything below to make it yours</span></div>
-        <div class="theme-grid" id="themes"></div>
-      </section>
-
-      <div id="controls"></div>
-      <button class="btn ghost full" id="reset">↺ Reset this widget to default</button>
-    </aside>
-
-    <main class="stage-wrap">
-      <div class="urlbar">
-        <div class="url-label" id="url-label">Widget URL</div>
-        <div class="url-row">
-          <input id="url" readonly spellcheck="false" />
-          <button class="btn primary" id="copy">Copy</button>
-          <a class="btn" id="open" target="_blank" rel="noopener">Open ↗</a>
-        </div>
-        <div class="hint">Paste into <b>OBS → Browser source</b>, Streamlabs, or a transparent overlay app (e.g. Transparent-Twitch-Chat-Overlay → custom URL). Suggested size <b id="size-hint">400 × 700</b>. Changes you make here are <b>saved automatically</b> and update the overlay live — no need to re-copy the URL.</div>
       </div>
+    </section>
 
-      <div class="stage-toolbar">
-        <div class="seg" id="feed-mode"><button data-v="demo" class="on">Demo chat</button><button data-v="live">My live chat</button></div>
-        <div class="seg" id="backdrop">
-          <button data-v="game" class="on">Game</button><button data-v="checker">Transparent</button>
-          <button data-v="dark">Dark</button><button data-v="light">Light</button><button data-v="green">Green</button>
-        </div>
-        <button class="btn small" id="clear">Clear</button>
-      </div>
-
-      <div class="stage bd-game" id="stage">
-        <div class="frame chat-frame" id="chat-frame" data-size="400 × 700"><div id="chat-preview"></div></div>
-        <div class="frame stats-frame" id="stats-frame" data-size="Stats widget" hidden><div id="stats-preview"></div></div>
-      </div>
-    </main>
+    <section class="page" id="page-connections" hidden></section>
+    <section class="page" id="page-logs" hidden></section>
+    <section class="page" id="page-settings" hidden></section>
   </div>
-
-  <!-- ═══ CONNECTIONS ═══ -->
-  <div class="page content" id="page-connections" hidden>
-    <div class="content-inner">
-      <h2>Connected platforms</h2>
-      <p class="muted">Login works with either platform. Connect both to merge chats and stats into the same widgets.</p>
-      <div class="conn-grid" id="conn-grid"></div>
-      <div class="card help">
-        <h3>How to use your widget URLs</h3>
-        <ol>
-          <li>Open <a href="#studio">Studio</a>, pick a widget and a theme, copy its URL.</li>
-          <li><b>OBS / Streamlabs:</b> Sources → <b>+</b> → <b>Browser</b> → paste URL → width 400, height 700 (stats: 800 × 140). The background stays transparent.</li>
-          <li><b>Desktop overlay apps</b> (like Transparent-Twitch-Chat-Overlay): use the custom/“chat URL” option and paste the same URL.</li>
-          <li>Go live. Chat appears automatically within a few seconds of your stream starting.</li>
-        </ol>
-        <p class="muted tiny">Watchers start when a widget or this dashboard is open and pause a few minutes after everything is closed, to save API quota.</p>
-        <button class="btn small" id="restart">↻ Restart chat watchers</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ LOGS ═══ -->
-  <div class="page content" id="page-logs" hidden>
-    <div class="content-inner wide">
-      <div class="logs-head">
-        <div class="seg" id="logs-tab"><button data-v="system" class="on">System logs</button><button data-v="chat">Chat history</button></div>
-        <div class="logs-tools" id="tools-system">
-          <select id="log-level"><option value="">All levels</option><option value="info">Info</option><option value="warn">Warnings</option><option value="error">Errors</option></select>
-          <button class="btn small" id="logs-refresh">Refresh</button>
-          <button class="btn small ghost danger" id="logs-clear">Clear logs</button>
-        </div>
-        <div class="logs-tools" id="tools-chat" hidden>
-          <input type="text" id="chat-q" placeholder="Search user or message…" />
-          <select id="chat-platform"><option value="">All platforms</option><option value="youtube">YouTube</option><option value="kick">Kick</option></select>
-          <span class="muted tiny" id="chat-count"></span>
-        </div>
-      </div>
-      <div class="card table-card"><table class="table" id="logs-table"><thead></thead><tbody></tbody></table><div class="empty" id="logs-empty" hidden>Nothing here yet.</div></div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-  <script type="module" src="/js/dashboard.js"></script>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script type="module" src="/js/dashboard.js"></script>
 </body>
 </html>

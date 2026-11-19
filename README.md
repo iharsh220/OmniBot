@@ -58,6 +58,8 @@ KICK_CLIENT_SECRET=
 # DATA_DIR=data                # where the SQLite database lives
 # TRUST_PROXY=1                # set when running behind a reverse proxy / PaaS
 # MAX_SSE_PER_IP=30
+# KICK_PUSHER_KEY=34bf7a0ff419a2a775b9   # Kick live socket (follower updates); change if Kick rotates it
+# KICK_PUSHER_CLUSTER=us2
 ```
 
 ### 1. YouTube (Google Cloud)

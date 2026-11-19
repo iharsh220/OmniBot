@@ -36,7 +36,8 @@ export const config = {
   kick: {
     clientId: e.KICK_CLIENT_ID,
     clientSecret: e.KICK_CLIENT_SECRET,
-    pusherKey: e.KICK_PUSHER_KEY || '32cbd69e4b950bf97679',
+    // Kick retired the old key 32cbd69e4b950bf97679 in Oct 2026; override via env if it changes again.
+    pusherKey: e.KICK_PUSHER_KEY || '34bf7a0ff419a2a775b9',
     pusherCluster: e.KICK_PUSHER_CLUSTER || 'us2',
     statsPollMs: num(e.KICK_STATS_POLL_MS, 30000),
   },
