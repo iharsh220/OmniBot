@@ -69,9 +69,7 @@ Locally the app always uses `http://localhost:3002` as its URL, and data is kept
 Posts new egg spawns from your Discord channel (e.g. `#🥚-egg-stock`, filled by a notifier bot) into your **YouTube and Kick live chat**. You can switch it ON/OFF from the dashboard. Viewers can type **`!egghistory`** to see the last 10 eggs.
 
 - **Discord:** create a bot at discord.com/developers. Turn on *Message Content Intent*. Invite it with *View Channel + Read Message History*. Put its token in `DISCORD_BOT_TOKEN`.
-- **YouTube:** messages come from a **bot account**, never your main channel:
-  - **OmniChat Bot (shared, default):** one bot for every streamer, set by the admin (`ADMIN_YOUTUBE_CHANNEL_ID` env). Streamers only switch the Egg Bot ON. They can make the bot a moderator on their channel.
-  - **My own bot:** a streamer connects their own extra Google account in **Egg Bot → Connect my bot account**.
+- **YouTube:** messages come from the **OmniChat Bot**, one bot account for every streamer (like Nightbot). The admin (`ADMIN_YOUTUBE_CHANNEL_ID`) connects it once in **Egg Bot → Admin → Connect OmniChat Bot**. Streamers only switch the Egg Bot ON and can make the bot a moderator on their channel.
 - **Kick:** messages come from your **Kick app's bot**. In your Kick app enable the scope *Write to Chat feed*, then click **Egg Bot → Give permission**.
 - Each YouTube message costs about 50 API quota units, so the bot posts at most `EGG_DAILY_POST_LIMIT` (120) messages per day.
 

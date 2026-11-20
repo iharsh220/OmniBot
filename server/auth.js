@@ -170,6 +170,9 @@ export async function handleCallback(provider, req) {
   if (st.sharedBot) {
     const admin = await getUser(st.linkUid);
     if (!admin || !isAdmin(admin) || provider !== 'youtube') throw new Error('Only an OmniChat admin can set the shared bot.');
+    if (await db.get(`link/youtube/${profile.channelId}`)) {
+      throw new Error(`"${profile.channelName}" is a streamer's main channel. Pick the OmniChat bot Google account instead.`);
+    }
     await saveSystemBot(botRecord(profile));
     await log(st.linkUid, 'info', 'eggs', `Shared OmniChat Bot set to: ${profile.channelName}`);
     return { uid: st.linkUid, linked: true, bot: true };
@@ -233,7 +236,8 @@ export const getSystemBot = () => db.get('system/ytbot');
 export const saveSystemBot = (rec) => db.set('system/ytbot', rec);
 export async function disconnectSystemBot() {
   const bot = await getSystemBot();
-  if (bot) await revokeAccount(bot);
+  // Never revoke a streamer's main channel (Google revokes the whole grant, which would log them out of YouTube).
+  if (bot && !(await db.get(`link/youtube/${bot.channelId}`))) await revokeAccount(bot);
   await db.del('system/ytbot');
 }
 export async function getSystemBotToken() {

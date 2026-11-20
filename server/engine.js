@@ -2,7 +2,7 @@
 // dashboard calls tick(), which does whatever YouTube/Kick work is due right now.
 import * as db from './store.js';
 import { addEvents, addLogs } from './feed.js';
-import { youtubeStep, youtubeDue, postChat, youtubeBotReady, usesSharedBot } from './youtube.js';
+import { youtubeStep, youtubeDue, postChat, youtubeBotReady } from './youtube.js';
 import { eggStep } from './eggs.js';
 import { config } from './config.js';
 import { kickStep, kickDue, postKickChat, kickChatReady } from './kick.js';
@@ -58,8 +58,7 @@ export async function tick(user) {
   if (eggsDue || commands.length) {
     const yt = states.youtube;
     const es = user.egg || {};
-    const shared = usesSharedBot(user);
-    const sharedBot = shared ? await getSystemBot() : null;
+    const sharedBot = await getSystemBot();
     const targets = {
       youtube: es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
       kick: es.kick !== false && !!states.kick.live && kickChatReady(user.accounts?.kick),
@@ -70,7 +69,7 @@ export async function tick(user) {
       const sent = { youtube: 0, kick: 0 };
       for (const p of r.posts) {
         try {
-          if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text, { shared });
+          if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
           else await postKickChat(uid, p.text);
           sent[p.to] += 1;
         } catch (e) { logs.push({ level: 'warn', source: 'eggs', message: `${p.to} chat post failed: ${e.message}` }); }
