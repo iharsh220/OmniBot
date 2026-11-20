@@ -52,7 +52,8 @@ export const DEFAULTS = {
   statsTotalText: 'Total watching',
   // ── eggs widget (Steal an Egg spawns overlay) ──
   eggsLayout: 'board', // board (stock board by rarity) | list | grouped (panels per location)
-  eggsCount: 12, // how many eggs to show
+  eggsCount: 12, // how many eggs to show (list / grouped)
+  eggsTiles: 40, // board: max tiles per rarity
   eggsLatest: true, // big card for the newest egg
   eggsTitle: 'Latest eggs', // list panel heading ('' = none)
   eggsDetails: true, // money / speed
@@ -154,7 +155,7 @@ const RANGES = {
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
-  eggsCount: [1, 50], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6],
+  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6],
 };
 const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40 };
 

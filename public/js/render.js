@@ -383,12 +383,14 @@ function eggIcon(e, cls) {
   box.append(img);
   return box;
 }
+const SPAWN_LIST = { divine: 5 }; // these rarities show their last N spawns (same egg can repeat)
 const RARITY_ORDER = ['secret', 'eternal', 'divine', 'mythic', 'legendary', 'epic', 'rare', 'uncommon', 'common'];
 
 export class EggsView {
   constructor(root, settings) {
     this.root = root;
     this.items = [];
+    this.lastSeen = []; // board: every egg name ever seen (server keeps it forever)
     this.seen = new Set();
     this.first = true;
     this.setSettings(settings);
@@ -410,6 +412,7 @@ export class EggsView {
     this.items = items || [];
     this.render(fresh);
   }
+  setSeen(list, redraw = true) { this.lastSeen = Array.isArray(list) ? list : []; if (redraw) this.render(); }
   isNew(e) { return this.s.eggsNewMinutes > 0 && Date.now() - e.ts < this.s.eggsNewMinutes * 60_000; }
   visible() {
     let list = this.items;
@@ -450,7 +453,7 @@ export class EggsView {
     const s = this.s;
     const list = this.visible();
     const box = el('div', 'eggs-box');
-    if (!list.length) {
+    if (!list.length && !(s.eggsLayout === 'board' && this.lastSeen.length)) {
       box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
       this.root.replaceChildren(box);
       return;
@@ -492,10 +495,10 @@ export class EggsView {
   /** Stock board: one panel per rarity, one tile per egg name (last time it was seen), newest first. */
   board(fresh) {
     const s = this.s;
-    let items = this.items;
+    let items = [...this.items, ...this.lastSeen].sort((a, b) => b.ts - a.ts);
     if (s.eggsMaxAge > 0) items = items.filter((e) => Date.now() - e.ts < s.eggsMaxAge * 60_000);
     const pics = new Map(); // name → any known picture (older feed items may not have one)
-    for (const e of this.items) if (e.image && !pics.has(e.name.toLowerCase())) pics.set(e.name.toLowerCase(), e.image);
+    for (const e of items) if (e.image && !pics.has(e.name.toLowerCase())) pics.set(e.name.toLowerCase(), e.image);
     const withPic = (e) => (e.image ? e : { ...e, image: pics.get(e.name.toLowerCase()) || null });
     const groups = new Map();
     for (const e of items) { // items are newest first → the first hit per name is its last sighting
@@ -503,7 +506,7 @@ export class EggsView {
       const key = k.toLowerCase();
       if (!groups.has(key)) groups.set(key, { label: k, names: new Set(), eggs: [] });
       const g = groups.get(key);
-      const n = e.name.toLowerCase();
+      const n = SPAWN_LIST[key] ? e.id : e.name.toLowerCase(); // spawn lists: one tile per spawn
       if (g.names.has(n)) continue;
       g.names.add(n);
       g.eggs.push(e);
@@ -524,9 +527,9 @@ export class EggsView {
           el('span', 'egg-bwhen', live ? 'NOW' : `LAST · ${eggShort(top.ts)} AGO`));
         head.append(pill);
       }
-      head.append(el('span', 'egg-bseen', 'LAST SEEN'));
+      head.append(el('span', 'egg-bseen', SPAWN_LIST[key] ? `LAST ${SPAWN_LIST[key]} SPAWNS` : 'LAST SEEN'));
       const grid = el('div', 'egg-tiles');
-      for (const e of g.eggs.slice(0, Math.max(1, s.eggsCount))) {
+      for (const e of g.eggs.slice(0, SPAWN_LIST[key] || Math.max(1, s.eggsTiles))) {
         const live = this.isNew(e);
         const tile = el('div', 'egg-tile' + (live ? ' live' : '') + (fresh.has(e.id) ? ' enter' : ''));
         const info = el('div', 'egg-tinfo');

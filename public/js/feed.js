@@ -41,6 +41,7 @@ export function connectLive(url, handlers = {}, opts = {}) {
       }
       if (d.settings && v !== null && d.v !== v) h.onSettings?.({ settings: d.settings });
       if (d.v !== undefined) v = d.v;
+      if (d.seen) h.onSeen?.(d.seen);
       if (d.eggs) h.onEggs?.(d.eggs);
       for (const l of d.logs || []) h.onLog?.(l);
       if (d.logCursor !== undefined) logCursor = d.logCursor;
@@ -131,7 +132,8 @@ const demoEgg = (i, ts) => {
 };
 /** Calls onEggs(list newest-first) now and whenever a new demo egg "spawns". */
 export function startEggDemo(onEggs, everyMs = 6000) {
-  let list = DEMO_EGGS.map((_, i) => demoEgg(i, Date.now() - (i * 7 + 2) * 60_000));
+  // Divine eggs are rare: in the demo they were last seen hours/days ago.
+  let list = DEMO_EGGS.map((d, i) => demoEgg(i, Date.now() - (d[1] === 'Divine' ? (i * 9 + 20) * 3_600_000 : (i * 7 + 2) * 60_000)));
   onEggs(list);
   let i = 3;
   const t = setInterval(() => { list = [demoEgg(i++, Date.now()), ...list].slice(0, 40); onEggs(list); }, everyMs);

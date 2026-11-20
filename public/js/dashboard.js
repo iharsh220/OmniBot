@@ -224,7 +224,8 @@ const GROUPS = [
     { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => s.eggsLayout !== 'list', hint: 'Tiles / panels per row' },
   ] },
   { tab: 'content', title: 'Eggs', types: ['eggs'], fields: [
-    { k: 'eggsCount', t: 'range', label: 'How many eggs', min: 1, max: 40 },
+    { k: 'eggsCount', t: 'range', label: 'How many eggs', min: 1, max: 40, show: (s) => s.eggsLayout !== 'board' },
+    { k: 'eggsTiles', t: 'range', label: 'Eggs per rarity', min: 1, max: 80, show: (s) => s.eggsLayout === 'board', hint: 'Board shows every egg ever seen, newest first' },
     { k: 'eggsLatest', t: 'toggle', label: 'Latest egg highlight', hint: 'Board: LIVE NOW / LATEST pill per rarity. List: a big glowing card' },
     { k: 'eggsTitle', t: 'text', label: 'List title', placeholder: 'Latest eggs', show: (s) => s.eggsLayout === 'list' },
     { k: 'eggsLocation', t: 'toggle', label: 'Show location', show: (s) => s.eggsLayout !== 'grouped' },
@@ -529,7 +530,7 @@ const eggsView = new EggsView($('#eggs-preview'), settings);
 let eggDemo = null;
 let eggLiveTimer = null;
 async function loadLiveEggs() {
-  try { const r = await api('/api/eggs'); eggsView.setItems(r.items || []); } catch { /* keep last */ }
+  try { const r = await api('/api/eggs'); eggsView.setSeen(r.seen || [], false); eggsView.setItems(r.items || []); } catch { /* keep last */ }
 }
 
 function refreshPreview() {
@@ -541,8 +542,8 @@ function refreshPreview() {
   $('#url').value = url;
   $('#open').href = url || '#';
   $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
-    : current?.type === 'eggs' ? (settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 760' : '1200 × 700') : '400 × 700';
-  $('#eggs-frame').dataset.size = `${settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 760' : '1200 × 700'} · OBS size`;
+    : current?.type === 'eggs' ? (settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 1000' : '1200 × 700') : '400 × 700';
+  $('#eggs-frame').dataset.size = `${settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 1000' : '1200 × 700'} · OBS size`;
   $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list');
 }
 
@@ -553,6 +554,7 @@ function setFeed(mode) {
   chatView.clear();
   eggDemo?.stop();
   clearInterval(eggLiveTimer);
+  if (mode === 'demo') eggsView.setSeen([], false);
   if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list));
   else { loadLiveEggs(); eggLiveTimer = setInterval(loadLiveEggs, 10_000); }
   if (mode === 'demo') demo = startDemo({ onChat: (m) => chatView.add(m), onState: (st) => statsView.setState(st), platforms: () => ['youtube', 'kick'].filter((p) => settings[p]) });

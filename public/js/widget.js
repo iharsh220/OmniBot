@@ -26,6 +26,7 @@ async function main() {
   if (type === 'eggs') {
     if (!id || params.get('demo') === '1') { startEggDemo((list) => view.setItems(list)); return; }
     connectLive(`/api/w/${id}/poll`, {
+      onSeen: (list) => view.setSeen(list),
       onEggs: (list) => view.setItems(list),
       onSettings: ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings })),
     }, { v: version, interval: 8_000 });

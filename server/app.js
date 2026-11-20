@@ -12,7 +12,7 @@ import {
 import { log, addLogs, addEvents, readEvents, readLogs, readHistory } from './feed.js';
 import { tick, publicState } from './engine.js';
 import { verifyKickWebhook, webhookToEvents } from './kick.js';
-import { eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
+import { boardList, eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
 import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickChatReady } from './kick.js';
 import { isBotAccount, getSystemBot, renewSession } from './auth.js';
@@ -122,7 +122,7 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
   if (w.type === 'eggs') {
     // Eggs overlay: the shared Steal-an-Egg feed (refreshed at most once per EGG_POLL_MS for everyone).
     const { feed } = await refreshGlobalFeed();
-    const out = { eggs: (feed.items || []).slice(0, 150), v: w.updatedAt };
+    const out = { eggs: (feed.items || []).slice(0, 150), seen: boardList(feed), v: w.updatedAt };
     if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
     return res.json(out);
   }
@@ -286,6 +286,7 @@ api.get('/eggs', ah(async (req, res) => {
   res.json({
     settings: eggSettings(req.user),
     items: doc.items,
+    seen: boardList(doc),
     rarities: [...new Set(doc.items.map((e) => e.rarity).filter(Boolean))],
     status: {
       feedReady: !!(config.discord.botToken && channelId && !doc.error && doc.lastCheckAt),

@@ -55,10 +55,11 @@ export function parseEggMessage(m) {
   return out;
 }
 
-async function fetchMessages(channelId, afterId, limit) {
+async function fetchMessages(channelId, afterId, limit, beforeId) {
   const url = new URL(`${DISCORD}/channels/${channelId}/messages`);
   url.searchParams.set('limit', String(limit || (afterId ? 50 : 15)));
   if (afterId) url.searchParams.set('after', afterId);
+  if (beforeId) url.searchParams.set('before', beforeId);
   const r = await tfetch(url, { headers: { Authorization: `Bot ${config.discord.botToken}` } });
   if (!r.ok) {
     const msg = {
@@ -111,6 +112,43 @@ export async function setEggChannelId(id) {
   await db.update('system/config', (c) => ({ ...(c || {}), eggChannelId: id }), {});
 }
 
+// ── "Last seen" board: one entry per egg name, kept forever (Divine eggs can be days apart) ──
+const BACKFILL_PAGES_PER_RUN = 3; // ×100 messages, walking back through the channel history
+const BACKFILL_MAX_PAGES = 80; // ~8000 messages
+const BACKFILL_MAX_AGE = 45 * 86_400_000; // stop at 45 days back
+const MAX_SEEN = 400;
+// Rare rarities keep their last spawns as a list (not one per name): "last 5 Divine — which, when".
+export const SPAWN_LIST_RARITIES = ['divine'];
+const SPAWN_LIST_MAX = 10;
+function addRecent(G, eggs) {
+  G.recent = G.recent || {};
+  for (const e of eggs) {
+    const r = String(e?.rarity || '').toLowerCase();
+    if (!SPAWN_LIST_RARITIES.includes(r)) continue;
+    const list = G.recent[r] || [];
+    if (list.some((x) => x.id === e.id)) continue;
+    list.push({ id: e.id, name: e.name, rarity: e.rarity, ts: e.ts, location: e.location, money: e.money, speed: e.speed, image: e.image || null });
+    G.recent[r] = list.sort((a, b) => b.ts - a.ts).slice(0, SPAWN_LIST_MAX);
+  }
+}
+/** Board data sent to widgets: last-seen per name + the rare spawn lists. */
+export const boardList = (feed) => [...Object.values(feed.seen || {}), ...Object.values(feed.recent || {}).flat()];
+function addSeen(G, eggs) {
+  addRecent(G, eggs);
+  G.seen = G.seen || {};
+  for (const e of eggs) {
+    if (!e?.name) continue;
+    const k = e.name.toLowerCase();
+    const cur = G.seen[k];
+    if (cur && cur.ts >= e.ts) { if (!cur.image && e.image) cur.image = e.image; continue; }
+    G.seen[k] = { id: e.id, name: e.name, rarity: e.rarity, ts: e.ts, location: e.location, money: e.money, speed: e.speed, image: e.image || cur?.image || null };
+  }
+  const keys = Object.keys(G.seen);
+  if (keys.length > MAX_SEEN) {
+    keys.sort((a, b) => G.seen[b].ts - G.seen[a].ts).slice(MAX_SEEN).forEach((k) => delete G.seen[k]);
+  }
+}
+
 /** Read new Discord messages into the shared feed — at most once per EGG_POLL_MS for ALL streamers. */
 export async function refreshGlobalFeed() {
   const now = Date.now();
@@ -139,6 +177,27 @@ export async function refreshGlobalFeed() {
     error = e.message;
     logs.push({ level: 'warn', source: 'eggs', message: e.message });
   }
+  // Walk back through older history a few pages per run until the "last seen" board is complete.
+  const old = [];
+  let bf = g.backfill || { before: null, pages: 0, done: false };
+  if (!error && !reset && !bf.done) {
+    bf = { ...bf };
+    try {
+      for (let i = 0; i < BACKFILL_PAGES_PER_RUN && !bf.done; i++) {
+        const before = bf.before || g.items[g.items.length - 1]?.id?.split('-')[0] || g.lastMessageId;
+        if (!before) { bf.done = true; break; }
+        const page = await fetchMessages(channelId, null, 100, before);
+        bf.pages += 1;
+        if (!page.length) { bf.done = true; break; }
+        bf.before = page[0].id; // oldest of this page
+        for (const m of page) old.push(...parseEggMessage(m));
+        const oldestTs = Date.parse(page[0].timestamp) || 0;
+        if (bf.pages >= BACKFILL_MAX_PAGES || Date.now() - oldestTs > BACKFILL_MAX_AGE || page.length < 100) bf.done = true;
+      }
+    } catch (e) {
+      logs.push({ level: 'warn', source: 'eggs', message: `History backfill: ${e.message}` });
+    }
+  }
   // One-time: feeds saved before egg pictures existed get their images from the last 100 messages.
   const pics = new Map();
   if (!error && !reset && !g.imagesV1 && g.items.some((x) => !('image' in x))) {
@@ -151,9 +210,13 @@ export async function refreshGlobalFeed() {
       G.items = G.items.map((x) => ('image' in x ? x : { ...x, image: pics.get(x.id) || null }));
       G.imagesV1 = true;
     }
-    if (reset) { G.items = []; G.channelId = channelId; }
+    if (reset) { G.items = []; G.channelId = channelId; G.seen = {}; G.recent = {}; G.backfill = null; }
     const have = new Set(G.items.map((x) => x.id));
     G.items = [...fresh.filter((e) => !have.has(e.id)).reverse(), ...G.items].slice(0, MAX_HISTORY); // newest first
+    if (!G.seen) addSeen(G, G.items); // first time: start the board from what we already have
+    addSeen(G, old);
+    addSeen(G, fresh);
+    if (!reset && (old.length || bf.pages !== (G.backfill?.pages || 0))) G.backfill = bf;
     if (lastId) G.lastMessageId = lastId;
     G.error = error;
     G.lastCheckAt = Date.now();
