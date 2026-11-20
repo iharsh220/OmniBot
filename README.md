@@ -45,7 +45,8 @@ Locally the app always uses `http://localhost:3002` as its URL, and data is kept
    | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from Google Cloud |
    | `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET` | from kick.com/settings/developer |
    | `DISCORD_BOT_TOKEN` | Egg Bot only — from discord.com/developers → your app → Bot |
-   | `ADMIN_YOUTUBE_CHANNEL_ID` | Your YouTube channel ID (UC…): lets you set the shared OmniChat Bot |
+   | `BOT_YOUTUBE_CHANNEL_ID` | YouTube channel ID (UC…) of the OmniChat Bot account |
+   | `EGG_DISCORD_CHANNEL_ID` | Discord channel with the egg spawn alerts |
    | `APP_URL` | optional; only for a custom domain (Netlify provides its URL automatically) |
 
 3. **Google Cloud** → APIs & Services → enable **YouTube Data API v3**. Then Credentials → OAuth client (Web application) → Authorized redirect URI:
@@ -66,12 +67,13 @@ Locally the app always uses `http://localhost:3002` as its URL, and data is kept
 
 ## 🥚 Egg Bot (Steal an Egg)
 
-Posts new egg spawns from your Discord channel (e.g. `#🥚-egg-stock`, filled by a notifier bot) into your **YouTube and Kick live chat**. You can switch it ON/OFF from the dashboard. Viewers can type **`!egghistory`** to see the last 10 eggs.
+Works like a Streamlabs/Nightbot bot. Streamers only switch it **ON/OFF** (and choose YouTube and/or Kick). The **OmniChat Bot** then posts every new egg spawn in their live chat, and viewers can type **`!egghistory`**.
 
-- **Discord:** create a bot at discord.com/developers. Turn on *Message Content Intent*. Invite it with *View Channel + Read Message History*. Put its token in `DISCORD_BOT_TOKEN`.
-- **YouTube:** messages come from the **OmniChat Bot**, one bot account for every streamer (like Nightbot). The admin (`ADMIN_YOUTUBE_CHANNEL_ID`) connects it once in **Egg Bot → Admin → Connect OmniChat Bot**. Streamers only switch the Egg Bot ON and can make the bot a moderator on their channel.
-- **Kick:** messages come from your **Kick app's bot**. In your Kick app enable the scope *Write to Chat feed*, then click **Egg Bot → Give permission**.
-- Each YouTube message costs about 50 API quota units, so the bot posts at most `EGG_DAILY_POST_LIMIT` (120) messages per day.
+One-time setup by the owner:
+- **Discord:** a bot with *Message Content Intent*, invited to the server that has the egg channel. Set `DISCORD_BOT_TOKEN` and `EGG_DISCORD_CHANNEL_ID`.
+- **YouTube bot:** a separate Google account with a YouTube channel. Set its channel ID as `BOT_YOUTUBE_CHANNEL_ID`, add its Gmail to the Google Test users, then simply **sign in to OmniChat with that account once**. It becomes the bot automatically.
+- **Kick:** messages come from the Kick app's bot. Enable *Write to Chat feed* in the Kick app. Streamers' Kick login already includes chat permission.
+- Each YouTube message costs about 50 quota units, so the bot posts at most `EGG_DAILY_POST_LIMIT` (120) per streamer per day.
 
 ## How it works on Netlify
 

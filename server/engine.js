@@ -22,7 +22,8 @@ export async function tick(user) {
   const now = Date.now();
   let live = (await db.get(`live/${uid}`)) || blankLive();
   const due = PLATFORMS.filter((p) => user.accounts?.[p] && DUE[p](live[p] || {}, now));
-  const eggsDue = !!(user.egg?.channelId && config.discord.botToken && now >= (live.eggs?._nextAt || 0));
+  // Egg Bot runs only for streamers who switched it ON (the Discord feed itself is shared + rate-limited).
+  const eggsDue = !!(user.egg?.enabled && config.discord.botToken && now >= (live.eggs?._nextAt || 0));
   if ((!due.length && !eggsDue) || live._lockUntil > now) return live;
 
   // Short lock so several OBS sources polling at once don't repeat the same API calls.
@@ -64,7 +65,8 @@ export async function tick(user) {
       kick: es.kick !== false && !!states.kick.live && kickChatReady(user.accounts?.kick),
     };
     try {
-      const r = await eggStep({ uid, user, eggState, commands, targets });
+      eggState._nextAt = Date.now() + config.eggs.pollMs;
+      const r = await eggStep({ uid, user, commands, targets });
       logs.push(...r.logs);
       const sent = { youtube: 0, kick: 0 };
       for (const p of r.posts) {

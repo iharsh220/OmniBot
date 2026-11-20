@@ -15,8 +15,9 @@ export const config = {
   },
   get kickStatsMs() { return num(e.KICK_STATS_POLL_MS, 30000); },
   discord: { get botToken() { return e.DISCORD_BOT_TOKEN || ''; } },
-  // Admins (comma separated YouTube channel IDs) can set the shared OmniChat Bot used by everyone.
-  get adminYouTubeChannelIds() { return String(e.ADMIN_YOUTUBE_CHANNEL_ID || '').split(',').map((x) => x.trim()).filter(Boolean); },
+  // YouTube channel ID of the OmniChat Bot account. When that account signs in to OmniChat it becomes
+  // the bot automatically, and only it can see/reconnect the bot settings.
+  get botYouTubeChannelId() { return String(e.BOT_YOUTUBE_CHANNEL_ID || '').trim(); },
   eggs: {
     get pollMs() { return num(e.EGG_POLL_MS, 10000); },        // how often to read the Discord channel
     get dailyPostLimit() { return num(e.EGG_DAILY_POST_LIMIT, 120); }, // YouTube quota guard (~50 units / message)

@@ -1,5 +1,6 @@
-// Egg Bot: reads Steal-an-Egg spawn alerts from the streamer's Discord channel (posted there by a
-// notifier bot such as "SenZ V2"), keeps a history, and announces new eggs in YouTube live chat.
+// Egg Bot: reads Steal-an-Egg spawn alerts from ONE Discord channel (set by the OmniChat Bot account,
+// filled by a notifier bot such as "SenZ V2") into a shared feed, and announces new eggs in the
+// YouTube (OmniChat Bot) and Kick (app bot) chat of every streamer who switched the Egg Bot ON.
 import { config, tfetch } from './config.js';
 import * as db from './store.js';
 
@@ -9,7 +10,7 @@ const YT_MAX = 200; // YouTube live chat message length limit
 
 // enabled = master ON/OFF · youtube / kick = where to post · commandEnabled = !egghistory
 // YouTube messages always come from the shared OmniChat Bot; Kick from the Kick app bot.
-export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, channelId: '', rarities: [], youtube: true, kick: true });
+export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, rarities: [], youtube: true, kick: true });
 export const eggSettings = (user) => ({ ...defaultEggSettings(), ...(user.egg || {}) });
 
 const stripEmoji = (s) => String(s || '').replace(/<a?:\w+:\d+>/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
@@ -91,43 +92,83 @@ export function historyMessages(items, n = 10, max = YT_MAX) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+const GLOBAL = 'eggs/global';
+const blankGlobal = () => ({ channelId: null, lastMessageId: null, items: [], _nextAt: 0, error: null, lastCheckAt: null });
+
+// ── The Discord channel everyone shares (set by the OmniChat Bot account) ──
+export async function getEggChannelId() {
+  return (await db.get('system/config'))?.eggChannelId || process.env.EGG_DISCORD_CHANNEL_ID || '';
+}
+export async function setEggChannelId(id) {
+  await db.update('system/config', (c) => ({ ...(c || {}), eggChannelId: id }), {});
+}
+
+/** Read new Discord messages into the shared feed — at most once per EGG_POLL_MS for ALL streamers. */
+export async function refreshGlobalFeed() {
+  const now = Date.now();
+  let claimed = false;
+  let g = await db.update(GLOBAL, (G) => {
+    claimed = false; // may re-run on an etag conflict
+    if ((G._nextAt || 0) > now) return undefined;
+    G._nextAt = now + config.eggs.pollMs;
+    claimed = true;
+    return G;
+  }, blankGlobal());
+  if (!claimed) return { feed: g, logs: [] };
+
+  const logs = [];
+  const channelId = await getEggChannelId();
+  if (!channelId || !config.discord.botToken) return { feed: g, logs };
+  const reset = g.channelId !== channelId;
+  let fresh = [];
+  let lastId = reset ? null : g.lastMessageId;
+  let error = null;
+  try {
+    const msgs = await fetchMessages(channelId, lastId);
+    for (const m of msgs) fresh.push(...parseEggMessage(m));
+    if (msgs.length) lastId = msgs[msgs.length - 1].id;
+  } catch (e) {
+    error = e.message;
+    logs.push({ level: 'warn', source: 'eggs', message: e.message });
+  }
+  g = await db.update(GLOBAL, (G) => {
+    if (reset) { G.items = []; G.channelId = channelId; }
+    const have = new Set(G.items.map((x) => x.id));
+    G.items = [...fresh.filter((e) => !have.has(e.id)).reverse(), ...G.items].slice(0, MAX_HISTORY); // newest first
+    if (lastId) G.lastMessageId = lastId;
+    G.error = error;
+    G.lastCheckAt = Date.now();
+    if (error) G._nextAt = Date.now() + 60_000;
+    return G;
+  }, blankGlobal());
+  return { feed: g, logs };
+}
+
+export const readFeed = async () => (await db.get(GLOBAL)) || blankGlobal();
 
 /**
- * Called from the engine tick. Reads new eggs from Discord, stores them, and returns chat
- * messages to post: [{ to: 'youtube'|'kick', text }]. `targets` says which platforms can be
- * posted to right now (setting ON + live + bot permission). YouTube is capped per day (quota).
+ * Per-streamer step (engine tick). Returns chat messages to post: [{ to: 'youtube'|'kick', text }].
+ * `targets` = platforms that can be posted to right now (switch ON + live + bot ready).
+ * The first run only remembers the newest egg, so a streamer never gets a backlog of old eggs.
  */
-export async function eggStep({ uid, user, eggState, commands, targets }) {
+export async function eggStep({ uid, user, commands, targets }) {
   const s = eggSettings(user);
-  const now = Date.now();
+  const { feed, logs } = await refreshGlobalFeed();
   const posts = [];
-  const logs = [];
-  const doc = (await db.get(`eggs/${uid}`)) || { lastMessageId: null, items: [], posted: { day: today(), n: 0 }, lastCmdAt: 0 };
+  const doc = (await db.get(`eggs/${uid}`)) || { lastSeenId: null, posted: { day: today(), n: 0 }, lastCmdAt: 0 };
   if (doc.posted?.day !== today()) doc.posted = { day: today(), n: 0 };
+  const items = feed.items || [];
 
-  // 1) new eggs from Discord
+  // eggs this streamer hasn't seen yet (items are newest first)
   let fresh = [];
-  if (s.channelId && config.discord.botToken && now >= (eggState._nextAt || 0)) {
-    eggState._nextAt = now + config.eggs.pollMs;
-    try {
-      const msgs = await fetchMessages(s.channelId, doc.lastMessageId);
-      const firstSync = !doc.lastMessageId;
-      for (const m of msgs) fresh.push(...parseEggMessage(m));
-      if (msgs.length) doc.lastMessageId = msgs[msgs.length - 1].id;
-      const have = new Set(doc.items.map((x) => x.id));
-      fresh = fresh.filter((e) => !have.has(e.id));
-      doc.items = [...fresh.slice().reverse(), ...doc.items].slice(0, MAX_HISTORY); // newest first
-      if (firstSync) { fresh = []; logs.push({ level: 'info', source: 'eggs', message: `Egg Bot connected to Discord channel — ${doc.items.length} recent eggs loaded` }); }
-      eggState.error = null;
-      eggState.lastCheckAt = now;
-    } catch (e) {
-      eggState.error = e.message;
-      eggState._nextAt = now + 60_000;
-      logs.push({ level: 'warn', source: 'eggs', message: e.message });
-    }
+  if (doc.lastSeenId) {
+    const i = items.findIndex((e) => e.id === doc.lastSeenId);
+    fresh = (i === -1 ? items.slice(0, 5) : items.slice(0, i)).reverse(); // oldest → newest
   }
+  const newestId = items[0]?.id || doc.lastSeenId;
+  const changed = newestId !== doc.lastSeenId;
+  doc.lastSeenId = newestId;
 
-  // 2) announcements → every enabled platform
   const wanted = (e) => !s.rarities.length || (e.rarity && s.rarities.includes(e.rarity));
   if (s.enabled) {
     for (const e of fresh.filter(wanted)) {
@@ -136,10 +177,10 @@ export async function eggStep({ uid, user, eggState, commands, targets }) {
     }
   }
 
-  // 3) !egghistory typed in YouTube chat (30 s cooldown)
-  if (s.commandEnabled && commands.length && targets.youtube && now - (doc.lastCmdAt || 0) > 30_000) {
-    doc.lastCmdAt = now;
-    for (const text of historyMessages(doc.items)) posts.push({ to: 'youtube', text });
+  // !egghistory typed in YouTube chat (30 s cooldown)
+  if (s.commandEnabled && commands.length && targets.youtube && Date.now() - (doc.lastCmdAt || 0) > 30_000) {
+    doc.lastCmdAt = Date.now();
+    for (const text of historyMessages(items)) posts.push({ to: 'youtube', text });
     logs.push({ level: 'info', source: 'eggs', message: `!egghistory requested by ${commands[0]} (YouTube)` });
   }
 
@@ -149,26 +190,27 @@ export async function eggStep({ uid, user, eggState, commands, targets }) {
   const ytAllowed = yt.slice(0, room);
   if (yt.length > ytAllowed.length) logs.push({ level: 'warn', source: 'eggs', message: `Skipped ${yt.length - ytAllowed.length} YouTube message(s) (rate/daily limit)` });
   doc.posted.n += ytAllowed.length;
-  const out = [...ytAllowed, ...posts.filter((p) => p.to === 'kick').slice(0, 6)];
-  if (fresh.length || commands.length || eggState.lastCheckAt === now) await db.set(`eggs/${uid}`, doc);
-  return { posts: out, logs, newEggs: fresh };
+  if (changed || posts.length || commands.length) await db.set(`eggs/${uid}`, doc);
+  return { posts: [...ytAllowed, ...posts.filter((p) => p.to === 'kick').slice(0, 6)], logs, newEggs: fresh };
 }
 
-/** !egghistory typed in Kick chat (arrives via webhook). Returns the reply text or null (cooldown/off). */
+/** !egghistory typed in Kick chat (arrives via webhook). Returns the reply text, or null (cooldown/off). */
 export async function kickHistoryReply(uid, user) {
   const s = eggSettings(user);
   if (!s.commandEnabled || !s.kick) return null;
-  let reply = null;
+  let ok = false;
   await db.update(`eggs/${uid}`, (doc) => {
-    reply = null; // may re-run on an etag conflict
+    ok = false; // may re-run on an etag conflict
     if (Date.now() - (doc.lastKickCmdAt || 0) < 30_000) return undefined;
     doc.lastKickCmdAt = Date.now();
-    reply = historyMessages(doc.items, 10, 500)[0];
+    ok = true;
     return doc;
-  }, { lastMessageId: null, items: [], posted: { day: today(), n: 0 } });
-  return reply;
+  }, { lastSeenId: null, posted: { day: today(), n: 0 } });
+  if (!ok) return null;
+  return historyMessages((await readFeed()).items, 10, 500)[0];
 }
 
 export async function readEggs(uid) {
-  return (await db.get(`eggs/${uid}`)) || { lastMessageId: null, items: [], posted: { day: today(), n: 0 } };
+  const [feed, doc] = await Promise.all([readFeed(), db.get(`eggs/${uid}`)]);
+  return { ...feed, posted: doc?.posted || { day: today(), n: 0 } };
 }

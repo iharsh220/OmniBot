@@ -105,7 +105,7 @@ export function authorize(provider, linkUid, { chatWrite = false, botAccount = f
     url.search = new URLSearchParams({
       client_id: config.google.clientId, redirect_uri: redirectUri('youtube'), response_type: 'code',
       // youtube.force-ssl only when the streamer turns on the chat bot (it can post messages).
-      scope: chatWrite || botAccount ? 'https://www.googleapis.com/auth/youtube.force-ssl' : 'https://www.googleapis.com/auth/youtube.readonly',
+      scope: chatWrite || botAccount || sharedBot ? 'https://www.googleapis.com/auth/youtube.force-ssl' : 'https://www.googleapis.com/auth/youtube.readonly',
       access_type: 'offline', prompt: 'consent select_account', state,
     });
   } else {
@@ -114,7 +114,7 @@ export function authorize(provider, linkUid, { chatWrite = false, botAccount = f
     url = new URL('https://id.kick.com/oauth/authorize');
     url.search = new URLSearchParams({
       response_type: 'code', client_id: config.kick.clientId, redirect_uri: redirectUri('kick'),
-      scope: chatWrite ? 'user:read channel:read chat:write' : 'user:read channel:read', code_challenge: challenge, code_challenge_method: 'S256', state,
+      scope: 'user:read channel:read chat:write', code_challenge: challenge, code_challenge_method: 'S256', state,
     });
   }
   return { url: url.toString(), cookie: cookie(STATE(), encrypt(JSON.stringify(payload)), STATE_TTL / 1000) };
@@ -168,11 +168,9 @@ export async function handleCallback(provider, req) {
   if (!code || typeof code !== 'string') throw new Error('No authorization code returned');
   const profile = provider === 'youtube' ? await exchangeYouTube(code) : await exchangeKick(code, st.verifier);
   if (st.sharedBot) {
-    const admin = await getUser(st.linkUid);
-    if (!admin || !isAdmin(admin) || provider !== 'youtube') throw new Error('Only an OmniChat admin can set the shared bot.');
-    if (await db.get(`link/youtube/${profile.channelId}`)) {
-      throw new Error(`"${profile.channelName}" is a streamer's main channel. Pick the OmniChat bot Google account instead.`);
-    }
+    const me = await getUser(st.linkUid);
+    if (!me || !isBotAccount(me) || provider !== 'youtube') throw new Error('Only the OmniChat Bot account can connect the bot.');
+    if (profile.channelId !== config.botYouTubeChannelId) throw new Error(`Please pick the OmniChat Bot Google account (you picked "${profile.channelName}").`);
     await saveSystemBot(botRecord(profile));
     await log(st.linkUid, 'info', 'eggs', `Shared OmniChat Bot set to: ${profile.channelName}`);
     return { uid: st.linkUid, linked: true, bot: true };
@@ -186,7 +184,15 @@ export async function handleCallback(provider, req) {
   const uid = await saveAccount(provider, profile, st.linkUid);
   await ensureDefaultWidgets(uid);
   await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
-  return { uid, linked: !!st.linkUid };
+  // The OmniChat Bot account signing in → make it the bot automatically (needs the chat-post scope).
+  let needsBotScope = false;
+  if (provider === 'youtube' && config.botYouTubeChannelId && profile.channelId === config.botYouTubeChannelId) {
+    if (String(profile.tokens.scope || '').includes('youtube.force-ssl')) {
+      await saveSystemBot(botRecord(profile));
+      await log(uid, 'info', 'eggs', `OmniChat Bot connected automatically: ${profile.channelName}`);
+    } else needsBotScope = true;
+  }
+  return { uid, linked: !!st.linkUid, needsBotScope };
 }
 
 async function saveAccount(provider, p, linkUid) {
@@ -225,8 +231,9 @@ async function saveAccount(provider, p, linkUid) {
   return uid;
 }
 
-// ── Shared OmniChat Bot (one YouTube bot account used for every streamer, set by an admin) ──
-export const isAdmin = (user) => !!user?.accounts?.youtube && config.adminYouTubeChannelIds.includes(user.accounts.youtube.channelId);
+// ── OmniChat Bot (one YouTube bot account used for every streamer) ──
+/** True when this OmniChat user signed in with the OmniChat Bot's own YouTube account. */
+export const isBotAccount = (user) => !!config.botYouTubeChannelId && user?.accounts?.youtube?.channelId === config.botYouTubeChannelId;
 const botRecord = (p) => ({
   provider: 'youtube', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
   accessToken: encrypt(p.tokens.access_token), refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : null,

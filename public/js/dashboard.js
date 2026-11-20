@@ -965,26 +965,20 @@ async function renderEggs() {
   };
   const row = (title, sub, ctl) => h('label', { class: 'srow', style: 'cursor:pointer' }, h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)), ctl);
 
-  // ── setup checklist ──
+  // ── status (read-only for streamers) ──
   const steps = [
-    [st.botConfigured, 'Discord bot token', st.botConfigured ? 'DISCORD_BOT_TOKEN is set on the server' : 'Add DISCORD_BOT_TOKEN in Netlify environment variables, then redeploy'],
-    [!!s.channelId && !st.error && !!st.lastCheckAt, 'Egg channel', !s.channelId ? 'Paste your #egg-stock Channel ID below' : st.error ? st.error : st.lastCheckAt ? `Reading your channel · checked ${ago(st.lastCheckAt)}` : 'Waiting for the first check…'],
-    [st.youtubeBotReady, 'OmniChat Bot (YouTube)', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}`
-      : st.sharedIsMainChannel ? 'The bot is set to a main channel — the admin must reconnect it with the OmniChat Google account'
-        : st.isAdmin ? 'Connect the OmniChat bot Google account below' : 'The OmniChat Bot is being set up — try again later',
-      !st.youtubeBotReady && st.isAdmin ? h('a', { class: 'btn sm primary', href: '/auth/youtube?sharedbot=1' }, 'Connect OmniChat Bot') : null],
-    [st.kickChatReady, 'Kick bot permission', st.kickChatReady ? 'Your Kick app bot can post in your chat' : st.kickConnected ? 'Allow OmniChat to post in your Kick chat (needs "Write to Chat feed" in your Kick app)' : 'Connect Kick first',
-      !st.kickChatReady ? h('a', { class: 'btn sm primary', href: st.kickConnected ? '/auth/kick?chat=1' : '#connections' }, st.kickConnected ? 'Give permission' : 'Connect Kick') : null],
+    [st.feedReady, 'Egg feed', st.feedReady ? `Receiving Steal an Egg spawns · checked ${ago(st.lastCheckAt)}` : st.feedError ? `Paused: ${st.feedError}` : 'Starting… (the OmniChat team sets this up)'],
+    [st.youtubeBotReady, 'YouTube · OmniChat Bot', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}` : 'The OmniChat Bot is being set up — nothing to do on your side'],
+    [st.kickChatReady, 'Kick · bot', st.kickChatReady ? 'Your Kick chat is ready for bot messages' : st.kickConnected ? 'Reconnect Kick once so the bot can post' : 'Connect Kick to use the bot there',
+      !st.kickChatReady ? h('a', { class: 'btn sm primary', href: '/auth/kick' }, st.kickConnected ? 'Reconnect Kick' : 'Connect Kick') : null],
     [st.ytLive || st.kickLive, 'Live status', `YouTube: ${st.ytLive ? 'LIVE' : 'offline'} · Kick: ${st.kickLive ? 'LIVE' : 'offline'} — the bot posts only where you are live`],
   ];
   const checklist = h('div', { class: 'card' },
-    h('div', { class: 'card-head' }, ic('check'), h('h3', {}, 'Setup'), h('span', { class: 'sub' }, `${steps.filter((x) => x[0]).length} of ${steps.length} ready`)),
+    h('div', { class: 'card-head' }, ic('check'), h('h3', {}, 'Status')),
     h('ul', { class: 'checklist' }, steps.map(([ok, title, sub, action]) =>
       h('li', { class: ok ? 'done' : '' }, h('span', { class: 'check', html: icon('check') }), h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)), action))));
 
-  // ── settings ──
-  const chInput = h('input', { class: 'input', value: s.channelId, placeholder: 'e.g. 1569620117942173728', inputmode: 'numeric', 'aria-label': 'Discord channel ID' });
-  const chSave = h('button', { class: 'btn', type: 'button', onclick: () => save({ channelId: chInput.value.trim() }, 'Channel saved') }, 'Save');
+  // ── the streamer's switches ──
   const known = [...new Set([...(data.rarities || []), ...s.rarities])];
   const chips = h('div', { class: 'quick' },
     h('button', { type: 'button', class: 'btn sm' + (!s.rarities.length ? ' primary' : ''), onclick: () => save({ rarities: [] }) }, 'All eggs'),
@@ -996,49 +990,42 @@ async function renderEggs() {
   const preview = latest ? `🥚 ${latest.rarity ? latest.rarity + ' Egg' : 'Egg'} spawned: ${latest.name}${latest.location ? ' | 📍' + latest.location : ''}${latest.money ? ' | 💰' + latest.money : ''}${latest.speed ? ' | ⚡' + latest.speed : ''}` : '🥚 Secret Egg spawned: Stormclaw Wolf | 📍Stormlands | 💰~$36m/s | ⚡150M';
 
   const settingsCard = h('div', { class: 'card' },
-    h('div', { class: 'card-head' }, ic('egg'), h('h3', {}, 'Egg Bot'), h('div', { class: 'actions' },
-      h('span', { class: 'tag ' + (s.enabled ? 'ok' : '') }, s.enabled ? 'ON' : 'OFF'))),
-    row('Egg alerts', 'Master switch. ON = the bot posts every new egg from your Discord channel. OFF = the bot stays quiet.', toggle(s.enabled, (v) => save({ enabled: v }, v ? 'Egg alerts ON' : 'Egg alerts OFF'))),
-    row('Post in YouTube chat', st.youtubeBot ? `As ${st.youtubeBot.channelName} (OmniChat Bot)` : 'As the OmniChat Bot', toggle(s.youtube, (v) => save({ youtube: v }))),
-    row('Post in Kick chat', 'As your Kick app bot', toggle(s.kick, (v) => save({ kick: v }))),
-    row('!egghistory command', 'Anyone can type !egghistory (YouTube or Kick) to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
-    // the YouTube bot (always the shared OmniChat Bot)
-    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:10px' },
-      h('div', { class: 'txt' }, h('b', {}, '🤖 OmniChat Bot'), h('span', {}, 'Posts the egg messages in your YouTube chat. Tip: make it a moderator on your channel so slow mode never blocks it.')),
-      st.sharedBot
-        ? h('div', { class: 'acct' }, st.sharedBot.avatar ? h('img', { src: st.sharedBot.avatar, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'ph' }),
-          h('div', { class: 'meta', style: 'flex:1' }, h('b', {}, st.sharedBot.channelName), h('span', { class: 'muted tiny' }, st.sharedIsMainChannel ? '⚠️ This is a main channel, not the bot' : 'OmniChat Bot · same bot for every streamer')))
-        : h('p', { class: 'fld-hint' }, st.isAdmin ? 'Not connected yet — use the admin button below.' : 'The OmniChat Bot is being set up.')),
-    // admin only: (re)connect the bot — e.g. when its token expires
-    st.isAdmin ? h('div', { class: 'srow admin-row', style: 'flex-direction:column;align-items:stretch;gap:10px' },
-      h('div', { class: 'txt' }, h('b', {}, '🛡️ Admin · OmniChat Bot'),
-        h('span', {}, st.sharedIsMainChannel
-          ? `⚠️ The bot is currently "${st.sharedBot.channelName}" (a main channel). Click Reconnect and pick the OmniChat bot Google account.`
-          : 'Reconnect if the bot stops posting (in Testing mode Google expires it every 7 days). In the Google popup pick the OmniChat bot account.')),
-      h('div', { class: 'quick' },
-        h('a', { class: 'btn sm primary', href: '/auth/youtube?sharedbot=1' }, st.sharedBot ? 'Reconnect OmniChat Bot' : 'Connect OmniChat Bot'),
-        st.sharedBot ? h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
-          if (!(await dialog({ title: 'Remove the OmniChat Bot?', text: 'Egg messages stop on YouTube for every streamer until you connect it again.', confirm: 'Remove', danger: true }))) return;
-          try { await api('/api/admin/shared-bot', { method: 'DELETE' }); toast('OmniChat Bot removed'); } catch (e) { toast(e.message, 'err'); }
-          renderEggs();
-        } }, 'Remove') : null)) : null,
+    h('div', { class: 'card-head' }, ic('egg'), h('h3', {}, 'Egg Bot'), h('div', { class: 'actions' }, h('span', { class: 'tag ' + (s.enabled ? 'ok' : '') }, s.enabled ? 'ON' : 'OFF'))),
+    row('Egg Bot', 'ON = the OmniChat Bot posts every new Steal an Egg spawn in your chat. OFF = it stays quiet.', toggle(s.enabled, (v) => save({ enabled: v }, v ? 'Egg Bot ON' : 'Egg Bot OFF'))),
+    row('YouTube chat', st.youtubeBot ? `Posted by ${st.youtubeBot.channelName}` : 'Posted by the OmniChat Bot', toggle(s.youtube, (v) => save({ youtube: v }, v ? 'YouTube ON' : 'YouTube OFF'))),
+    row('Kick chat', 'Posted by the OmniChat Kick bot', toggle(s.kick, (v) => save({ kick: v }, v ? 'Kick ON' : 'Kick OFF'))),
+    row('!egghistory command', 'Viewers type !egghistory to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
-      h('div', { class: 'txt' }, h('b', {}, 'Discord channel ID'), h('span', {}, 'Right-click #🥚-egg-stock → Copy Channel ID (Developer Mode on).')),
-      h('div', { class: 'wpick' }, chInput, chSave)),
+      h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce, or all eggs.')), chips),
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
-      h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce. Others are still saved in history.')), chips),
-    h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
-      h('div', { class: 'txt' }, h('b', {}, 'Chat message preview'), h('span', {}, `Posted today: ${st.postedToday}/${st.dailyLimit} (YouTube quota guard)`)),
+      h('div', { class: 'txt' }, h('b', {}, 'Message preview'), h('span', {}, `YouTube messages today: ${st.postedToday}/${st.dailyLimit}`)),
       h('code', { class: 'egg-preview' }, preview),
       h('div', {}, h('button', { class: 'btn sm', type: 'button', onclick: async () => {
         try {
           const r = await api('/api/eggs/test', { method: 'POST' });
-          const ok = r.result.youtube === 'sent' || r.result.kick === 'sent';
-          toast(`YouTube: ${r.result.youtube} · Kick: ${r.result.kick}`, ok ? 'ok' : 'err');
+          toast(`YouTube: ${r.result.youtube} · Kick: ${r.result.kick}`, r.result.youtube === 'sent' || r.result.kick === 'sent' ? 'ok' : 'err');
         } catch (e) { toast(e.message, 'err'); }
-      } }, ic('send'), 'Send test message'))));
+      } }, ic('send'), 'Send test message'))),
+    h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, '💡 Tip'), h('span', {}, 'Make the OmniChat Bot a moderator on your YouTube channel so slow mode never blocks it.'))));
 
-  // ── history ──
+  // ── OmniChat Bot account only: the shared setup ──
+  let botCard = null;
+  if (st.isBot) {
+    const chInput = h('input', { class: 'input', value: st.channelId || '', placeholder: 'e.g. 1569620117942173728', inputmode: 'numeric', 'aria-label': 'Discord channel ID' });
+    botCard = h('div', { class: 'card admin-card' },
+      h('div', { class: 'card-head' }, ic('shield'), h('h3', {}, 'OmniChat Bot setup'), h('span', { class: 'sub' }, 'Only visible to the bot account')),
+      h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, 'YouTube posting'),
+        h('span', {}, st.youtubeBotReady ? `Active as ${st.youtubeBot.channelName}. It refreshes every time this account signs in.` : 'Not active yet — click Reconnect.')),
+        h('a', { class: 'btn sm primary', href: '/auth/youtube?sharedbot=1' }, 'Reconnect')),
+      h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
+        h('div', { class: 'txt' }, h('b', {}, 'Discord egg channel'), h('span', {}, st.discordConfigured ? 'Every streamer’s Egg Bot reads this channel.' : 'DISCORD_BOT_TOKEN is missing on the server.')),
+        h('div', { class: 'wpick' }, chInput, h('button', { class: 'btn', type: 'button', onclick: async () => {
+          try { await api('/api/eggs/channel', { method: 'PUT', body: JSON.stringify({ channelId: chInput.value.trim() }) }); toast('Egg channel saved'); } catch (e) { toast(e.message, 'err'); }
+          renderEggs();
+        } }, 'Save'))));
+  }
+
+  // ── recent eggs (shared feed) ──
   const history = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, ic('clock'), h('h3', {}, 'Recent eggs'), h('span', { class: 'sub' }, `${items.length} saved · updates every 10 s`)),
     items.length
@@ -1048,9 +1035,11 @@ async function renderEggs() {
           h('td', { class: 'when', title: fmtTime(e.ts) }, h('b', {}, ago(e.ts)), new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
           h('td', {}, h('b', { class: 'who', style: 'display:block' }, e.name), rarityTag(e.rarity)),
           h('td', { class: 'egg-details' }, e.location ? h('span', {}, `📍 ${e.location}`) : null, e.money ? h('span', {}, `💰 ${e.money}`) : null, e.speed ? h('span', {}, `⚡ ${e.speed}`) : null))))))
-      : h('div', { class: 'empty' }, ic('egg'), h('b', {}, 'No eggs yet'), s.channelId ? 'New spawns from your Discord channel will show up here.' : 'Add your Discord channel ID to start.'));
+      : h('div', { class: 'empty' }, ic('egg'), h('b', {}, 'No eggs yet'), 'Turn the Egg Bot ON — new spawns show up here within seconds.'));
 
-  root.replaceChildren(h('div', { class: 'grid two' }, h('div', { class: 'grid', style: 'align-content:start' }, settingsCard), h('div', { class: 'grid', style: 'align-content:start' }, checklist, history)));
+  root.replaceChildren(h('div', { class: 'grid two' },
+    h('div', { class: 'grid', style: 'align-content:start' }, botCard, settingsCard),
+    h('div', { class: 'grid', style: 'align-content:start' }, checklist, history)));
 }
 setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#page-eggs input')) renderEggs(); }, 10_000);
 
