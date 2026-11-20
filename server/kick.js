@@ -1,7 +1,7 @@
 // Kick: official API stats (pulled on demand) + chat/events via signed official webhooks.
 import crypto from 'node:crypto';
 import { config, tfetch } from './config.js';
-import { getAccessToken, getUser } from './auth.js';
+import { getAccessToken, getUser, getSystemKickBotToken, getSystemKickBot } from './auth.js';
 import * as db from './store.js';
 
 const API = 'https://api.kick.com/public/v1';
@@ -169,17 +169,20 @@ export async function webhookToEvents(type, payload, messageId) {
   return out;
 }
 
-/** Post in the streamer's Kick chat as your Kick app's BOT account (needs chat:write). Max 500 chars. */
-export async function postKickChat(uid, text) {
-  const token = await getAccessToken(uid, 'kick');
+/** Post a chat message in a channel as the shared OmniChat Kick bot (needs chat:write). Max 500 chars. */
+export async function postKickChat(broadcasterUserId, text) {
+  const token = await getSystemKickBotToken();
   const r = await tfetch(`${API}/chat`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ content: String(text).slice(0, 500), type: 'bot' }),
+    body: JSON.stringify({ broadcaster_user_id: Number(broadcasterUserId), content: String(text).slice(0, 500), type: 'user' }),
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
     throw new Error(j.message || `Kick chat HTTP ${r.status}`);
   }
 }
-export const kickChatReady = (acc) => !!acc?.scope && acc.scope.split(/\s+/).includes('chat:write');
+export const kickBotReady = async () => {
+  const bot = await getSystemKickBot();
+  return !!(bot?.scope && String(bot.scope).split(/\s+/).includes('chat:write'));
+};

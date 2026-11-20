@@ -18,6 +18,9 @@ export const config = {
   // YouTube channel ID of the OmniChat Bot account. When that account signs in to OmniChat it becomes
   // the bot automatically, and only it can see/reconnect the bot settings.
   get botYouTubeChannelId() { return String(e.BOT_YOUTUBE_CHANNEL_ID || '').trim(); },
+  // Kick channel (broadcaster user) ID of the OmniChat Bot account. When that account connects to Kick
+  // with chat:write, it becomes the shared bot that posts in every streamer's Kick chat.
+  get botKickChannelId() { return String(e.BOT_KICK_CHANNEL_ID || '').trim(); },
   eggs: {
     get pollMs() { return num(e.EGG_POLL_MS, 10000); },        // how often to read the Discord channel
     get dailyPostLimit() { return num(e.EGG_DAILY_POST_LIMIT, 120); }, // YouTube quota guard (~50 units / message)

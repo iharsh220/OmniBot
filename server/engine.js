@@ -5,7 +5,7 @@ import { addEvents, addLogs } from './feed.js';
 import { youtubeStep, youtubeDue, postChat, youtubeBotReady } from './youtube.js';
 import { eggStep } from './eggs.js';
 import { config } from './config.js';
-import { kickStep, kickDue, postKickChat, kickChatReady } from './kick.js';
+import { kickStep, kickDue, postKickChat, kickBotReady } from './kick.js';
 import { updateUser, getSystemBot } from './auth.js';
 
 const PLATFORMS = ['youtube', 'kick'];
@@ -60,10 +60,11 @@ export async function tick(user) {
     const yt = states.youtube;
     const es = user.egg || {};
     const sharedBot = await getSystemBot();
+    const kickBotOk = await kickBotReady();
     const targets = {
       // Only platforms the streamer has connected can ever be posted to.
       youtube: !!user.accounts?.youtube && es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
-      kick: !!user.accounts?.kick && es.kick !== false && !!states.kick.live && kickChatReady(user.accounts.kick),
+      kick: !!user.accounts?.kick && es.kick !== false && !!states.kick.live && kickBotOk,
     };
     try {
       eggState._nextAt = Date.now() + config.eggs.pollMs;
@@ -73,7 +74,7 @@ export async function tick(user) {
       for (const p of r.posts) {
         try {
           if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
-          else await postKickChat(uid, p.text);
+          else await postKickChat(user.accounts.kick.channelId, p.text);
           sent[p.to] += 1;
         } catch (e) { logs.push({ level: 'warn', source: 'eggs', message: `${p.to} chat post failed: ${e.message}` }); }
       }

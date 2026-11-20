@@ -14,8 +14,8 @@ import { tick, publicState } from './engine.js';
 import { verifyKickWebhook, webhookToEvents } from './kick.js';
 import { boardList, eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
 import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
-import { postKickChat, kickChatReady } from './kick.js';
-import { isBotAccount, getSystemBot, renewSession } from './auth.js';
+import { postKickChat, kickBotReady } from './kick.js';
+import { isBotAccount, getSystemBot, getSystemKickBot, renewSession } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
 
 const app = express();
@@ -45,7 +45,7 @@ app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (re
   const sharedBot = provider === 'youtube' && req.query.sharedbot === '1';
   if (sharedBot && !user) return res.redirect('/login');
   if (sharedBot && !isBotAccount(user)) return res.redirect(`/?error=${encodeURIComponent('Only the OmniChat Bot account can do this')}#eggs`);
-  const chatWrite = provider === 'kick' && (req.query.chat === '1' || kickChatReady(user?.accounts?.kick));
+  const chatWrite = provider === 'kick' && (req.query.chat === '1' || String(user?.accounts?.kick?.scope || '').split(/\s+/).includes('chat:write'));
   const a = authorize(provider, user?.id, { chatWrite, sharedBot });
   setCookies(res, [a.cookie]);
   res.redirect(a.url);
@@ -95,10 +95,10 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
     if (out.logs.length) await addLogs(out.uid, out.logs);
     // !egghistory typed in Kick chat → reply as the Kick bot
     const cmd = out.chats.find((m) => /^!egghistory\b/i.test((m.parts || []).map((x) => x.text || '').join('').trim()));
-    if (cmd && kickChatReady(out.user.accounts?.kick)) {
+    if (cmd && await kickBotReady() && out.user.accounts?.kick?.channelId) {
       const reply = await kickHistoryReply(out.uid, out.user);
       if (reply) {
-        try { await postKickChat(out.uid, reply); await log(out.uid, 'info', 'eggs', `!egghistory requested by ${cmd.author.name} (Kick)`); }
+        try { await postKickChat(out.user.accounts.kick.channelId, reply); await log(out.uid, 'info', 'eggs', `!egghistory requested by ${cmd.author.name} (Kick)`); }
         catch (e) { await log(out.uid, 'warn', 'eggs', `Kick chat post failed: ${e.message}`); }
       }
     }
@@ -280,7 +280,7 @@ api.delete(`/widgets/${ID}`, ah(async (req, res) => {
 
 // ── Egg Bot ──
 api.get('/eggs', ah(async (req, res) => {
-  const [doc, live, sharedBot, channelId] = await Promise.all([readEggs(req.user.id), db.get(`live/${req.user.id}`), getSystemBot(), getEggChannelId()]);
+  const [doc, live, sharedBot, kickBot, channelId] = await Promise.all([readEggs(req.user.id), db.get(`live/${req.user.id}`), getSystemBot(), getSystemKickBot(), getEggChannelId()]);
   const yt = live?.youtube || {};
   const isBot = isBotAccount(req.user);
   res.json({
@@ -297,7 +297,8 @@ api.get('/eggs', ah(async (req, res) => {
       youtubeBotReady: youtubeBotReady(req.user, sharedBot),
       ytLive: !!(yt.live && yt._chatId),
       kickConnected: !!req.user.accounts?.kick,
-      kickChatReady: kickChatReady(req.user.accounts?.kick),
+      kickChatReady: !!(kickBot?.scope && String(kickBot.scope).split(/\s+/).includes('chat:write')),
+      kickBot: kickBot ? { channelName: kickBot.channelName, avatar: kickBot.avatar } : null,
       kickLive: !!live?.kick?.live,
       postedToday: doc.posted?.day === new Date().toISOString().slice(0, 10) ? doc.posted.n : 0,
       dailyLimit: config.eggs.dailyPostLimit,
@@ -336,20 +337,21 @@ api.put('/eggs/channel', ah(async (req, res) => {
 }));
 
 api.post('/eggs/test', ah(async (req, res) => {
-  const live = await db.get(`live/${req.user.id}`);
+  const [live, feed, sharedBot, kickBot] = await Promise.all([db.get(`live/${req.user.id}`), readFeed(), getSystemBot(), getSystemKickBot()]);
   const yt = live?.youtube || {};
-  const feed = await readFeed();
-  const text = feed.items[0] ? formatEgg(feed.items[0]) : '🥚 OmniChat Egg Bot is connected!';
+  const es = eggSettings(req.user);
+  const text = feed.items[0] ? formatEgg(feed.items[0]) : 'ðŸ¥š OmniChat Egg Bot is connected!';
   const result = {};
-  const sharedBot = await getSystemBot();
-  if (!req.user.accounts?.youtube) result.youtube = 'not connected';
+  if (es.youtube === false) result.youtube = 'disabled';
+  else if (!req.user.accounts?.youtube) result.youtube = 'not connected';
   else if (youtubeBotReady(req.user, sharedBot) && yt.live && yt._chatId) {
     try { await postChat(req.user.id, yt._chatId, text); result.youtube = 'sent'; } catch (e) { result.youtube = e.message; }
   } else result.youtube = !youtubeBotReady(req.user, sharedBot) ? 'the OmniChat Bot is being set up' : 'go live on YouTube first';
-  if (!req.user.accounts?.kick) result.kick = 'not connected';
-  else if (kickChatReady(req.user.accounts.kick)) {
-    try { await postKickChat(req.user.id, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; }
-  } else result.kick = 'reconnect Kick once';
+  if (es.kick === false) result.kick = 'disabled';
+  else if (!req.user.accounts?.kick) result.kick = 'not connected';
+  else if (kickBot?.scope && String(kickBot.scope).split(/\s+/).includes('chat:write')) {
+    try { await postKickChat(req.user.accounts.kick.channelId, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; }
+  } else result.kick = 'connect the OmniChat Kick bot account (chat:write)';
   await log(req.user.id, 'info', 'eggs', `Test message → YouTube: ${result.youtube} · Kick: ${result.kick}`);
   res.json({ ok: true, text, result });
 }));

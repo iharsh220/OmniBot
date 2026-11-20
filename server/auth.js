@@ -187,13 +187,22 @@ export async function handleCallback(provider, req) {
   const uid = await saveAccount(provider, profile, st.linkUid);
   await ensureDefaultWidgets(uid);
   await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
-  // The OmniChat Bot account signing in → make it the bot automatically (needs the chat-post scope).
+  // The OmniChat Bot account signing in ? make it the bot automatically (needs the chat-post scope).
   let needsBotScope = false;
   if (provider === 'youtube' && config.botYouTubeChannelId && profile.channelId === config.botYouTubeChannelId) {
     if (String(profile.tokens.scope || '').includes('youtube.force-ssl')) {
       await saveSystemBot(botRecord(profile));
       await log(uid, 'info', 'eggs', `OmniChat Bot connected automatically: ${profile.channelName}`);
     } else needsBotScope = true;
+  }
+  // Kick OmniChat Bot: when the configured Kick account connects with chat:write, store it as the shared bot.
+  if (provider === 'kick' && config.botKickChannelId && profile.channelId === config.botKickChannelId) {
+    if (String(profile.tokens.scope || '').split(/\s+/).includes('chat:write')) {
+      await saveSystemKickBot(kickBotRecord(profile));
+      await log(uid, 'info', 'eggs', `Shared OmniChat Kick Bot connected: ${profile.channelName}`);
+    } else {
+      await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write � reconnect Kick to grant it');
+    }
   }
   return { uid, linked: !!st.linkUid, needsBotScope };
 }
@@ -263,6 +272,36 @@ export async function getSystemBotToken() {
     throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) — admin must reconnect it`);
   }
   await db.update('system/ytbot', (b) => {
+    if (!b) return undefined;
+    b.accessToken = encrypt(t.access_token);
+    if (t.refresh_token) b.refreshToken = encrypt(t.refresh_token);
+    b.expiresAt = Date.now() + (t.expires_in || 3600) * 1000;
+    return b;
+  }, null);
+  return t.access_token;
+}
+
+// â”€â”€ OmniChat Kick Bot (one Kick bot account used for every streamer) â”€â”€
+const kickBotRecord = (p) => ({
+  provider: 'kick', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
+  accessToken: encrypt(p.tokens.access_token), refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : null,
+  expiresAt: Date.now() + (p.tokens.expires_in || 3600) * 1000, scope: p.tokens.scope || null, createdAt: Date.now(),
+});
+export const getSystemKickBot = () => db.get('system/kickbot');
+export const saveSystemKickBot = (rec) => db.set('system/kickbot', rec);
+export async function getSystemKickBotToken() {
+  const bot = await getSystemKickBot();
+  if (!bot) throw new Error('The shared OmniChat Kick bot is not set up � connect the OmniChat Kick account');
+  if (bot.expiresAt && Date.now() < bot.expiresAt - 90_000) return decrypt(bot.accessToken);
+  const refresh = decrypt(bot.refreshToken);
+  if (!refresh) throw new Error('Shared OmniChat Kick bot needs to be reconnected');
+  let t;
+  try {
+    t = await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
+  } catch (e) {
+    throw new Error(`Shared OmniChat Kick bot token refresh failed (${e.message}) � reconnect it`);
+  }
+  await db.update('system/kickbot', (b) => {
     if (!b) return undefined;
     b.accessToken = encrypt(t.access_token);
     if (t.refresh_token) b.refreshToken = encrypt(t.refresh_token);
