@@ -112,14 +112,14 @@ const PAGES = {
 // ═════════════════════════════════════════════════════════════════════
 const TABS = {
   chat: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'message'], ['filters', 'Filters', 'filter']],
-  stats: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Content', 'chart']],
+  stats: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'chart']],
 };
 const SECTION_INFO = {
   theme: () => ['10 ready-made looks — pick one to start'],
-  style: () => ['Colors, background, fonts & shape'],
-  layout: () => ['Animation, direction & timing'],
-  content: (type) => [type === 'chat' ? 'Avatar, badges, platform icon & time' : 'Which numbers to show, and how'],
-  filters: () => ['Platforms, bot commands & hidden users'],
+  style: () => ['Colors, border, background, fonts, shape & avatar'],
+  layout: (type) => [type === 'chat' ? 'Alignment, width, animation & timing' : 'Row, column or pill · alignment'],
+  content: (type) => [type === 'chat' ? 'Avatar, badges, time, events & emotes' : 'Viewers, subs, total · titles, icons & labels'],
+  filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
 const GROUPS = [
@@ -131,6 +131,11 @@ const GROUPS = [
     { k: 'nameColor', t: 'seg', label: 'Usernames', types: ['chat'], options: [['user', 'User'], ['platform', 'Platform'], ['accent', 'Accent'], ['custom', 'Custom']] },
     { k: 'nameColorCustom', t: 'color', label: 'Name color', types: ['chat'], show: (s) => s.nameColor === 'custom' },
   ] },
+  { tab: 'style', title: 'Border', fields: [
+    { k: 'borderWidth', t: 'range', label: 'Border width', min: 0, max: 6, fmt: (v) => (v === 0 ? 'None' : `${v}px`) },
+    { k: 'borderColor', t: 'color', label: 'Border color', show: (s) => s.borderWidth > 0 },
+    { k: 'borderOpacity', t: 'range', label: 'Border opacity', min: 0, max: 100, unit: '%', show: (s) => s.borderWidth > 0 },
+  ] },
   { tab: 'style', title: 'Background', fields: [
     { k: 'pageBg', t: 'color', label: 'Widget background' },
     { k: 'pageBgOpacity', t: 'range', label: 'Background opacity', min: 0, max: 100, fmt: (v) => (v === 0 ? 'Transparent' : `${v}%`) },
@@ -140,6 +145,8 @@ const GROUPS = [
     { k: 'font', t: 'select', label: 'Font', options: Object.keys(FONTS).map((f) => [f, f]) },
     { k: 'fontSize', t: 'range', label: 'Size', min: 10, max: 40, unit: 'px' },
     { k: 'fontWeight', t: 'select', label: 'Weight', num: true, options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra bold']] },
+    { k: 'nameWeight', t: 'select', label: 'Name weight', num: true, types: ['chat'], options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra bold'], [900, 'Black']] },
+    { k: 'lineHeight', t: 'range', label: 'Line spacing', min: 100, max: 200, fmt: (v) => (v / 100).toFixed(2) },
     { k: 'stroke', t: 'toggle', label: 'Text outline', hint: 'Keeps text readable on busy game backgrounds' },
   ] },
   { tab: 'style', title: 'Shape', fields: [
@@ -148,9 +155,18 @@ const GROUPS = [
     { k: 'gap', t: 'range', label: 'Spacing', min: 0, max: 24, unit: 'px' },
     { k: 'shadow', t: 'toggle', label: 'Shadow' },
   ] },
+  { tab: 'style', title: 'Avatar', types: ['chat'], fields: [
+    { k: 'avatarShape', t: 'seg', label: 'Shape', options: [['circle', 'Circle'], ['rounded', 'Rounded'], ['square', 'Square']] },
+    { k: 'avatarSize', t: 'range', label: 'Size', min: 60, max: 200, unit: '%' },
+  ] },
   { tab: 'layout', title: 'Motion', types: ['chat'], fields: [
     { k: 'animation', t: 'seg', label: 'Animation', options: [['slide', 'Slide'], ['fade', 'Fade'], ['pop', 'Pop'], ['none', 'None']] },
     { k: 'direction', t: 'seg', label: 'New messages', options: [['bottom', 'Bottom'], ['top', 'Top']] },
+  ] },
+  { tab: 'layout', title: 'Arrangement', types: ['chat'], fields: [
+    { k: 'align', t: 'seg', label: 'Align messages', options: [['left', 'Left'], ['right', 'Right']] },
+    { k: 'maxWidth', t: 'range', label: 'Message width', min: 30, max: 100, unit: '%', hint: 'Narrower cards leave more of your game visible' },
+    { k: 'compact', t: 'toggle', label: 'Compact (one line)', hint: 'Name and message on the same line' },
   ] },
   { tab: 'layout', title: 'Flow', types: ['chat'], fields: [
     { k: 'hideAfter', t: 'range', label: 'Hide after', min: 0, max: 120, fmt: (v) => (v === 0 ? 'Never' : `${v}s`), hint: 'Messages fade away after this many seconds' },
@@ -161,6 +177,11 @@ const GROUPS = [
     { k: 'showBadges', t: 'toggle', label: 'Badges' },
     { k: 'showPlatform', t: 'toggle', label: 'Platform icon' },
     { k: 'showTime', t: 'toggle', label: 'Timestamp' },
+    { k: 'timeFormat', t: 'seg', label: 'Time format', options: [['24h', '24-hour'], ['12h', '12-hour']], show: (s) => s.showTime },
+  ] },
+  { tab: 'content', title: 'Extras', types: ['chat'], fields: [
+    { k: 'showEvents', t: 'toggle', label: 'Super Chats & subs', hint: 'Show Super Chats, memberships and Kick subs' },
+    { k: 'emoteSize', t: 'range', label: 'Emote size', min: 100, max: 300, unit: '%' },
   ] },
   { tab: 'filters', title: 'Sources', types: ['chat'], fields: [
     { k: 'youtube', t: 'toggle', label: 'YouTube chat' },
@@ -169,19 +190,37 @@ const GROUPS = [
   { tab: 'filters', title: 'Hide', types: ['chat'], fields: [
     { k: 'hideCommands', t: 'toggle', label: 'Bot commands', hint: 'Hide messages that start with !' },
     { k: 'hideBots', t: 'text', label: 'Usernames', placeholder: 'nightbot, botrix', stack: true, hint: 'Comma separated — these users never show up' },
+    { k: 'hideLinks', t: 'toggle', label: 'Links', hint: 'Hide messages that contain a link' },
+    { k: 'blockedWords', t: 'text', label: 'Blocked words', placeholder: 'spoiler, scam', stack: true, hint: 'Comma separated — messages with these words are hidden' },
   ] },
-  { tab: 'content', title: 'Layout', types: ['stats'], fields: [
-    { k: 'statsLayout', t: 'seg', label: 'Style', options: [['row', 'Row'], ['column', 'Column'], ['pill', 'Pill']] },
-    { k: 'statsLabels', t: 'toggle', label: 'Labels' },
-    { k: 'statsCompact', t: 'toggle', label: 'Compact numbers', hint: '15,320 → 15.3K' },
+  { tab: 'filters', title: 'Length', types: ['chat'], fields: [
+    { k: 'minLength', t: 'range', label: 'Hide shorter than', min: 0, max: 30, fmt: (v) => (v === 0 ? 'Off' : `${v} chars`) },
+    { k: 'maxLength', t: 'range', label: 'Shorten after', min: 0, max: 300, step: 10, fmt: (v) => (v === 0 ? 'Never' : `${v} chars`) },
   ] },
-  { tab: 'content', title: 'Show', types: ['stats'], fields: [
-    { k: 'statsYoutube', t: 'toggle', label: 'YouTube' },
-    { k: 'statsKick', t: 'toggle', label: 'Kick' },
-    { k: 'statsViewers', t: 'toggle', label: 'Live viewers' },
-    { k: 'statsSubs', t: 'toggle', label: 'Subs / followers' },
-    { k: 'statsTotal', t: 'toggle', label: 'Total viewers card' },
+  { tab: 'content', title: 'What to show', types: ['stats'], fields: [
+    { k: 'statsViewers', t: 'toggle', label: 'Live viewers', hint: 'Turn off to show only subscribers / followers' },
+    { k: 'statsSubs', t: 'toggle', label: 'Subscribers / followers', hint: 'Turn off to show only live viewers' },
+    { k: 'statsTotal', t: 'toggle', label: 'Total watching card', hint: 'YouTube + Kick viewers added together', show: (s) => s.statsViewers },
+    { k: 'statsYoutube', t: 'toggle', label: 'YouTube card' },
+    { k: 'statsKick', t: 'toggle', label: 'Kick card' },
     { k: 'statsHideOffline', t: 'toggle', label: 'Hide when offline' },
+  ] },
+  { tab: 'content', title: 'Card title', types: ['stats'], fields: [
+    { k: 'statsHeader', t: 'seg', label: 'Title shows', options: [['both', 'Icon + name'], ['icon', 'Icon'], ['name', 'Name'], ['none', 'Nothing']] },
+    { k: 'statsLiveBadge', t: 'toggle', label: 'LIVE badge' },
+  ] },
+  { tab: 'content', title: 'Numbers', types: ['stats'], fields: [
+    { k: 'statsIcons', t: 'toggle', label: 'Icons (👁 👥)' },
+    { k: 'statsLabels', t: 'toggle', label: 'Labels' },
+    { k: 'statsViewersText', t: 'text', label: 'Viewers label', placeholder: 'watching', show: (s) => s.statsLabels && s.statsViewers },
+    { k: 'statsSubsText', t: 'text', label: 'Subs label', placeholder: 'auto: subscribers / followers', show: (s) => s.statsLabels && s.statsSubs },
+    { k: 'statsTotalText', t: 'text', label: 'Total card title', placeholder: 'Total watching', show: (s) => s.statsTotal && s.statsViewers },
+    { k: 'statsCompact', t: 'toggle', label: 'Compact numbers', hint: '15,320 → 15.3K' },
+    { k: 'statsNumSize', t: 'range', label: 'Number size', min: 60, max: 200, unit: '%' },
+  ] },
+  { tab: 'layout', title: 'Stats layout', types: ['stats'], fields: [
+    { k: 'statsLayout', t: 'seg', label: 'Style', options: [['row', 'Row'], ['column', 'Column'], ['pill', 'Pill']] },
+    { k: 'statsAlign', t: 'seg', label: 'Align', options: [['left', 'Left'], ['center', 'Center']] },
   ] },
 ];
 
@@ -234,7 +273,7 @@ function control(f) {
     case 'range': {
       const label = (n) => (f.fmt ? f.fmt(n) : `${n}${f.unit || ''}`);
       const out = h('span', { class: 'val' }, label(v));
-      const r = h('input', { type: 'range', min: f.min, max: f.max, value: v, 'aria-label': f.label });
+      const r = h('input', { type: 'range', min: f.min, max: f.max, step: f.step || 1, value: v, 'aria-label': f.label });
       r.addEventListener('input', () => { out.textContent = label(Number(r.value)); set(f.k, Number(r.value)); });
       return [r, out];
     }
@@ -312,6 +351,25 @@ function fieldEl(f) {
   return h('div', { class: 'fld' }, h('b', { class: 'fld-label' }, f.label), control(f), hint);
 }
 
+/** Settings keys that belong to one Studio section (for its Reset button). */
+function sectionKeys(id, type) {
+  if (id === 'theme') return ['theme', ...LOOK_KEYS];
+  const keys = [];
+  for (const g of GROUPS) {
+    if (g.tab !== id || (g.types && !g.types.includes(type))) continue;
+    for (const f of g.fields) if (f.k && !(f.types && !f.types.includes(type))) keys.push(f.k);
+  }
+  return keys;
+}
+async function resetSection(id, title, type) {
+  if (!(await dialog({ title: `Reset ${title}?`, text: `Only the ${title} settings go back to default. Everything else stays as it is.`, confirm: `Reset ${title}` }))) return;
+  for (const k of sectionKeys(id, type)) settings[k] = DEFAULTS[k];
+  scheduleSave();
+  renderConfig();
+  refreshPreview();
+  toast(`${title} reset`);
+}
+
 function sectionBody(id, type) {
   const out = [];
   if (id === 'theme') {
@@ -349,12 +407,15 @@ function renderConfig() {
     h('span', { class: 'acc-txt' }, h('b', {}, title), h('span', {}, desc)),
     h('span', { class: 'acc-chev', html: icon('chevron') }));
     sec.append(head);
-    if (open) sec.append(h('div', { class: 'acc-body', id: `acc-${id}`, role: 'region' }, sectionBody(id, type)));
+    if (open) {
+      sec.append(h('div', { class: 'acc-body', id: `acc-${id}`, role: 'region' }, sectionBody(id, type),
+        h('div', { class: 'acc-reset' }, h('button', { type: 'button', class: 'btn sm ghost', onclick: () => resetSection(id, title, type) }, ic('refresh'), `Reset ${title}`))));
+    }
     body.append(sec);
   }
 
   body.append(h('div', { class: 'acc-actions' },
-    h('button', { type: 'button', class: 'btn sm', onclick: resetWidget }, ic('refresh'), 'Reset to default'),
+    h('button', { type: 'button', class: 'btn sm', onclick: resetWidget }, ic('refresh'), 'Reset everything'),
     h('button', { type: 'button', class: 'btn sm danger', onclick: deleteWidget }, ic('trash'), 'Delete widget')));
   body.scrollTop = scroll;
 }

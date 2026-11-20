@@ -90,7 +90,7 @@ export function createMessageEl(m, s) {
   head.append(el('span', 'msg-name', m.author.name));
   if (s.showTime) {
     const d = new Date(m.ts || Date.now());
-    head.append(el('span', 'msg-time', d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+    head.append(el('span', 'msg-time', d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: s.timeFormat === '12h' })));
   }
   body.append(head);
 
@@ -104,15 +104,21 @@ export function createMessageEl(m, s) {
   if (m.parts?.length) {
     const text = el('div', 'msg-text');
     if (m.replyTo) text.append(el('span', 'msg-reply', `@${m.replyTo} `));
+    let budget = s.maxLength > 0 ? s.maxLength : Infinity; // "Shorten long messages"
     for (const part of m.parts) {
+      if (budget <= 0) { text.append(document.createTextNode('…')); break; }
       if (part.type === 'emote') {
+        budget -= 1;
         const src = safeUrl(part.url);
         if (!src) { text.append(document.createTextNode(part.name || '')); continue; }
         const img = el('img', 'msg-emote');
         img.src = src; img.alt = part.name || ''; img.title = part.name || '';
         text.append(img);
       } else {
-        text.append(document.createTextNode(part.text || ''));
+        let t = part.text || '';
+        if (t.length > budget) { t = t.slice(0, Math.max(0, budget)).trimEnd() + '…'; budget = 0; } else budget -= t.length;
+        text.append(document.createTextNode(t));
+        if (budget === 0 && t.endsWith('…')) break;
       }
     }
     body.append(text);
@@ -134,6 +140,7 @@ export class ChatView {
   setSettings(s) {
     this.s = s;
     this.bots = new Set(String(s.hideBots || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
+    this.blocked = String(s.blockedWords || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
     applyRoot(this.root, s, 'chat');
     this.rerender();
   }
@@ -145,6 +152,17 @@ export class ChatView {
     if (s.hideCommands && (m.parts?.[0]?.text || '').trim().startsWith('!')) return false;
     if (s.hideAfter > 0 && m.history) return false;
     if (s.hideAfter > 0 && m.arrivedAt && Date.now() - m.arrivedAt > s.hideAfter * 1000) return false;
+    if (!s.showEvents && m.kind && m.kind !== 'chat') return false;
+    if (m.kind === 'chat' || !m.kind) {
+      const text = (m.parts || []).map((p) => (p.type === 'emote' ? '' : p.text || '')).join('').trim();
+      const emotes = (m.parts || []).filter((p) => p.type === 'emote').length;
+      if (s.hideLinks && /(https?:\/\/|www\.)\S+|\b\S+\.(com|net|org|gg|io|in|tv|ly|me|xyz)\b/i.test(text)) return false;
+      if (s.minLength > 0 && text.length + emotes < s.minLength) return false;
+      if (this.blocked.length) {
+        const low = text.toLowerCase();
+        if (this.blocked.some((w) => low.includes(w))) return false;
+      }
+    }
     return true;
   }
 
@@ -260,51 +278,42 @@ export class StatsView {
     const s = this.s;
     const box = el('div', 'stats-box');
     this.nodes = {};
+    const icon = (name) => { const i = el('span', 'stat-i'); i.innerHTML = ICONS[name]; return i; };
+    const item = (iconName, label) => {
+      const v = el('div', 'stat-item');
+      const num = el('span', 'stat-num', '—');
+      if (s.statsIcons) v.append(icon(iconName));
+      v.append(num);
+      if (s.statsLabels && label) v.append(el('span', 'stat-sub', label));
+      return { v, num };
+    };
     for (const it of this.items()) {
       const card = el('div', `stat-card plat-${it.key}`);
       const head = el('div', 'stat-head');
-      const ic = el('span', 'stat-icon'); ic.innerHTML = ICONS[it.key];
-      head.append(ic);
+      // card title: platform icon and/or channel name
+      if (s.statsHeader === 'both' || s.statsHeader === 'icon') { const ic = el('span', 'stat-icon'); ic.innerHTML = ICONS[it.key]; head.append(ic); }
       const lbl = el('span', 'stat-label', it.label);
-      if (s.statsLabels) head.append(lbl);
+      if (s.statsHeader === 'both' || s.statsHeader === 'name') head.append(lbl);
       const live = el('span', 'stat-live', 'LIVE');
-      head.append(live);
-      card.append(head);
+      if (s.statsLiveBadge) head.append(live);
+      if (head.childNodes.length) card.append(head);
       const row = el('div', 'stat-row');
       let viewers, subs;
-      if (s.statsViewers) {
-        const v = el('div', 'stat-item');
-        const i = el('span', 'stat-i'); i.innerHTML = ICONS.eye;
-        viewers = el('span', 'stat-num', '—');
-        v.append(i, viewers);
-        if (s.statsLabels) v.append(el('span', 'stat-sub', 'watching'));
-        row.append(v);
-      }
-      if (s.statsSubs) {
-        const v = el('div', 'stat-item');
-        const i = el('span', 'stat-i'); i.innerHTML = ICONS.users;
-        subs = el('span', 'stat-num', '—');
-        v.append(i, subs);
-        if (s.statsLabels) v.append(el('span', 'stat-sub', it.subsLabel));
-        row.append(v);
-      }
+      if (s.statsViewers) { const x = item('eye', s.statsViewersText); viewers = x.num; row.append(x.v); }
+      if (s.statsSubs) { const x = item('users', s.statsSubsText || it.subsLabel); subs = x.num; row.append(x.v); }
       card.append(row);
       box.append(card);
       this.nodes[it.key] = { card, viewers, subs, live, lbl };
     }
     if (s.statsTotal && s.statsViewers && this.items().length > 1) {
       const card = el('div', 'stat-card plat-total');
-      const head = el('div', 'stat-head');
-      head.append(el('span', 'stat-label', 'Total watching'));
+      if (s.statsHeader !== 'none' && s.statsTotalText) { const head = el('div', 'stat-head'); head.append(el('span', 'stat-label', s.statsTotalText)); card.append(head); }
       const row = el('div', 'stat-row');
-      const v = el('div', 'stat-item');
-      const i = el('span', 'stat-i'); i.innerHTML = ICONS.eye;
-      const num = el('span', 'stat-num', '—');
-      v.append(i, num);
-      row.append(v);
-      card.append(head, row);
+      const x = item('eye', '');
+      row.append(x.v);
+      card.append(row);
       box.append(card);
-      this.nodes.total = { card, viewers: num };
+      this.nodes.total = { card, viewers: x.num };
     }
     this.root.replaceChildren(box);
     this.update();

@@ -42,6 +42,35 @@ export const DEFAULTS = {
   statsLabels: true,
   statsCompact: false,
   statsHideOffline: false,
+  statsHeader: 'both', // both | icon | name | none — what the card title shows
+  statsLiveBadge: true,
+  statsIcons: true, // 👁 / 👥 icons next to numbers
+  statsNumSize: 100, // % number size
+  statsAlign: 'left', // left | center
+  statsViewersText: 'watching',
+  statsSubsText: '', // empty = "subscribers" / "followers"
+  statsTotalText: 'Total watching',
+  // ── extra style ──
+  borderWidth: 0, // px, 0 = none
+  borderColor: '#ffffff',
+  borderOpacity: 25,
+  lineHeight: 135, // ÷100 → 1.35
+  nameWeight: 800,
+  avatarShape: 'circle', // circle | rounded | square
+  avatarSize: 100, // % of normal
+  // ── extra layout ──
+  align: 'left', // left | right
+  maxWidth: 100, // % of the widget width
+  compact: false, // name + message on one line
+  // ── extra content ──
+  showEvents: true, // Super Chats, memberships, subs
+  timeFormat: '24h', // 24h | 12h
+  emoteSize: 175, // % of the text size
+  // ── extra filters ──
+  hideLinks: false,
+  blockedWords: '',
+  minLength: 0, // hide messages shorter than this
+  maxLength: 0, // shorten longer messages (0 = never)
 };
 
 export const THEMES = [
@@ -55,6 +84,12 @@ export const THEMES = [
   { id: 'gradient', name: 'Gradient', desc: 'Vibrant name pills', values: { font: 'Montserrat', fontWeight: 500, textColor: '#ffffff', msgBg: '#14121f', msgBgOpacity: 85, accent: '#ff3cac', radius: 16, nameColor: 'user', showAvatar: true, stroke: false } },
   { id: 'pastel', name: 'Pastel', desc: 'Soft & friendly', values: { font: 'Comfortaa', fontWeight: 700, textColor: '#3b2f4a', msgBg: '#f6eefe', msgBgOpacity: 94, accent: '#b892ff', radius: 22, nameColor: 'accent', showAvatar: true, stroke: false } },
   { id: 'sleek', name: 'Sleek', desc: 'Dark strip, platform bar', values: { font: 'JetBrains Mono', fontWeight: 500, fontSize: 15, textColor: '#e6e6e6', msgBg: '#101014', msgBgOpacity: 92, accent: '#ffffff', radius: 4, nameColor: 'user', showAvatar: false, stroke: false } },
+  { id: 'midnight', name: 'Midnight', desc: 'Calm app-style chat', values: { font: 'Inter', fontWeight: 500, fontSize: 15, textColor: '#dbdee1', msgBg: '#313338', msgBgOpacity: 92, accent: '#5865f2', radius: 8, nameColor: 'user', showAvatar: true, stroke: false } },
+  { id: 'cyber', name: 'Cyber', desc: 'Yellow-black futuristic', values: { font: 'Outfit', fontWeight: 600, fontSize: 16, textColor: '#fdf500', msgBg: '#0b0b0f', msgBgOpacity: 90, accent: '#fdf500', radius: 0, nameColor: 'accent', showAvatar: false, stroke: false } },
+  { id: 'pixel', name: 'Pixel', desc: '8-bit game boxes', values: { font: 'Press Start 2P', fontWeight: 400, fontSize: 11, textColor: '#ffffff', msgBg: '#1b1b3a', msgBgOpacity: 95, accent: '#ff5ccd', radius: 0, nameColor: 'user', showAvatar: false, stroke: false } },
+  { id: 'comic', name: 'Comic', desc: 'Speech bubbles, bold ink', values: { font: 'Bangers', fontWeight: 400, fontSize: 20, textColor: '#111111', msgBg: '#ffffff', msgBgOpacity: 100, accent: '#ff3b3b', radius: 18, nameColor: 'accent', showAvatar: true, stroke: false } },
+  { id: 'frost', name: 'Frost', desc: 'Icy glass, soft glow', values: { font: 'Nunito', fontWeight: 700, fontSize: 16, textColor: '#f0faff', msgBg: '#7cc7ff', msgBgOpacity: 22, accent: '#bfe8ff', radius: 16, nameColor: 'user', showAvatar: true, stroke: false } },
+  { id: 'sunset', name: 'Sunset', desc: 'Warm gradient cards', values: { font: 'Poppins', fontWeight: 600, fontSize: 16, textColor: '#ffffff', msgBg: '#ff7a59', msgBgOpacity: 92, accent: '#ffd166', radius: 14, nameColor: 'accent', showAvatar: true, stroke: false } },
 ];
 
 export const FONTS = {
@@ -97,12 +132,19 @@ const ENUMS = {
   animation: ['slide', 'fade', 'pop', 'none'],
   direction: ['bottom', 'top'],
   statsLayout: ['row', 'column', 'pill'],
+  avatarShape: ['circle', 'rounded', 'square'],
+  align: ['left', 'right'],
+  timeFormat: ['24h', '12h'],
+  statsHeader: ['both', 'icon', 'name', 'none'],
+  statsAlign: ['left', 'center'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
+  borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
+  maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
 };
-const MAX_TEXT = { hideBots: 500 };
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30 };
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;
@@ -169,6 +211,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,
@@ -182,6 +225,14 @@ export function applyRoot(el, s, kind) {
     '--radius': `${s.radius}px`,
     '--gap': `${s.gap}px`,
     '--pad': `${s.padding}px`,
+    '--border-w': `${s.borderWidth}px`,
+    '--border-c': hexA(s.borderColor, s.borderOpacity),
+    '--lh': s.lineHeight / 100,
+    '--name-w': s.nameWeight,
+    '--av-scale': s.avatarSize / 100,
+    '--maxw': `${s.maxWidth}%`,
+    '--emote': s.emoteSize / 100,
+    '--stat-num': s.statsNumSize / 100,
   };
   for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
 }
