@@ -284,6 +284,7 @@ api.get('/eggs', ah(async (req, res) => {
       feedReady: !!(config.discord.botToken && channelId && !doc.error && doc.lastCheckAt),
       feedError: doc.error || null,
       lastCheckAt: doc.lastCheckAt || null,
+      youtubeConnected: !!req.user.accounts?.youtube,
       youtubeBot: sharedBot ? { channelName: sharedBot.channelName, avatar: sharedBot.avatar } : null,
       youtubeBotReady: youtubeBotReady(req.user, sharedBot),
       ytLive: !!(yt.live && yt._chatId),
@@ -333,12 +334,14 @@ api.post('/eggs/test', ah(async (req, res) => {
   const text = feed.items[0] ? formatEgg(feed.items[0]) : '🥚 OmniChat Egg Bot is connected!';
   const result = {};
   const sharedBot = await getSystemBot();
-  if (youtubeBotReady(req.user, sharedBot) && yt.live && yt._chatId) {
+  if (!req.user.accounts?.youtube) result.youtube = 'not connected';
+  else if (youtubeBotReady(req.user, sharedBot) && yt.live && yt._chatId) {
     try { await postChat(req.user.id, yt._chatId, text); result.youtube = 'sent'; } catch (e) { result.youtube = e.message; }
   } else result.youtube = !youtubeBotReady(req.user, sharedBot) ? 'the OmniChat Bot is being set up' : 'go live on YouTube first';
-  if (kickChatReady(req.user.accounts?.kick)) {
+  if (!req.user.accounts?.kick) result.kick = 'not connected';
+  else if (kickChatReady(req.user.accounts.kick)) {
     try { await postKickChat(req.user.id, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; }
-  } else result.kick = req.user.accounts?.kick ? 'reconnect Kick once' : 'connect Kick first';
+  } else result.kick = 'reconnect Kick once';
   await log(req.user.id, 'info', 'eggs', `Test message → YouTube: ${result.youtube} · Kick: ${result.kick}`);
   res.json({ ok: true, text, result });
 }));

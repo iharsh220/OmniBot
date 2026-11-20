@@ -966,13 +966,16 @@ async function renderEggs() {
   const row = (title, sub, ctl) => h('label', { class: 'srow', style: 'cursor:pointer' }, h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)), ctl);
 
   // ── status (read-only for streamers) ──
+  const yc = st.youtubeConnected;
+  const kc = st.kickConnected;
+  const liveParts = [yc ? `YouTube: ${st.ytLive ? 'LIVE' : 'offline'}` : null, kc ? `Kick: ${st.kickLive ? 'LIVE' : 'offline'}` : null].filter(Boolean).join(' · ');
   const steps = [
     [st.feedReady, 'Egg feed', st.feedReady ? `Receiving Steal an Egg spawns · checked ${ago(st.lastCheckAt)}` : st.feedError ? `Paused: ${st.feedError}` : 'Starting… (the OmniChat team sets this up)'],
-    [st.youtubeBotReady, 'YouTube · OmniChat Bot', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}` : 'The OmniChat Bot is being set up — nothing to do on your side'],
-    [st.kickChatReady, 'Kick · bot', st.kickChatReady ? 'Your Kick chat is ready for bot messages' : st.kickConnected ? 'Reconnect Kick once so the bot can post' : 'Connect Kick to use the bot there',
-      !st.kickChatReady ? h('a', { class: 'btn sm primary', href: '/auth/kick' }, st.kickConnected ? 'Reconnect Kick' : 'Connect Kick') : null],
-    [st.ytLive || st.kickLive, 'Live status', `YouTube: ${st.ytLive ? 'LIVE' : 'offline'} · Kick: ${st.kickLive ? 'LIVE' : 'offline'} — the bot posts only where you are live`],
-  ];
+    yc ? [st.youtubeBotReady, 'YouTube · OmniChat Bot', st.youtubeBotReady ? `Messages are posted as ${st.youtubeBot.channelName}` : 'The OmniChat Bot is being set up — nothing to do on your side'] : null,
+    kc ? [st.kickChatReady, 'Kick · bot', st.kickChatReady ? 'Your Kick chat is ready for bot messages' : 'Reconnect Kick once so the bot can post',
+      !st.kickChatReady ? h('a', { class: 'btn sm primary', href: '/auth/kick' }, 'Reconnect Kick') : null] : null,
+    [st.ytLive || st.kickLive, 'Live status', `${liveParts} — the bot posts only where you are live`],
+  ].filter(Boolean);
   const checklist = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, ic('check'), h('h3', {}, 'Status')),
     h('ul', { class: 'checklist' }, steps.map(([ok, title, sub, action]) =>
@@ -992,8 +995,13 @@ async function renderEggs() {
   const settingsCard = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, ic('egg'), h('h3', {}, 'Egg Bot'), h('div', { class: 'actions' }, h('span', { class: 'tag ' + (s.enabled ? 'ok' : '') }, s.enabled ? 'ON' : 'OFF'))),
     row('Egg Bot', 'ON = the OmniChat Bot posts every new Steal an Egg spawn in your chat. OFF = it stays quiet.', toggle(s.enabled, (v) => save({ enabled: v }, v ? 'Egg Bot ON' : 'Egg Bot OFF'))),
-    row('YouTube chat', st.youtubeBot ? `Posted by ${st.youtubeBot.channelName}` : 'Posted by the OmniChat Bot', toggle(s.youtube, (v) => save({ youtube: v }, v ? 'YouTube ON' : 'YouTube OFF'))),
-    row('Kick chat', 'Posted by the OmniChat Kick bot', toggle(s.kick, (v) => save({ kick: v }, v ? 'Kick ON' : 'Kick OFF'))),
+    // Only platforms you have connected get a switch.
+    yc ? row('YouTube chat', st.youtubeBot ? `Posted by ${st.youtubeBot.channelName}` : 'Posted by the OmniChat Bot', toggle(s.youtube, (v) => save({ youtube: v }, v ? 'YouTube ON' : 'YouTube OFF'))) : null,
+    kc ? row('Kick chat', 'Posted by the OmniChat Kick bot', toggle(s.kick, (v) => save({ kick: v }, v ? 'Kick ON' : 'Kick OFF'))) : null,
+    !yc || !kc ? h('div', { class: 'srow' }, h('div', { class: 'txt' },
+      h('b', {}, `➕ Add ${!yc ? 'YouTube' : 'Kick'}`),
+      h('span', {}, `Connect ${!yc ? 'YouTube' : 'Kick'} to use the Egg Bot there too.`)),
+      h('a', { class: 'btn sm', href: '#connections' }, 'Connect')) : null,
     row('!egghistory command', 'Viewers type !egghistory to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
       h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce, or all eggs.')), chips),

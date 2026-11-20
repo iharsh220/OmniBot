@@ -61,8 +61,9 @@ export async function tick(user) {
     const es = user.egg || {};
     const sharedBot = await getSystemBot();
     const targets = {
-      youtube: es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
-      kick: es.kick !== false && !!states.kick.live && kickChatReady(user.accounts?.kick),
+      // Only platforms the streamer has connected can ever be posted to.
+      youtube: !!user.accounts?.youtube && es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
+      kick: !!user.accounts?.kick && es.kick !== false && !!states.kick.live && kickChatReady(user.accounts.kick),
     };
     try {
       eggState._nextAt = Date.now() + config.eggs.pollMs;
