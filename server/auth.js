@@ -105,7 +105,10 @@ export function authorize(provider, linkUid, { chatWrite = false, botAccount = f
     url.search = new URLSearchParams({
       client_id: config.google.clientId, redirect_uri: redirectUri('youtube'), response_type: 'code',
       // youtube.force-ssl only when the streamer turns on the chat bot (it can post messages).
-      scope: chatWrite || botAccount || sharedBot ? 'https://www.googleapis.com/auth/youtube.force-ssl' : 'https://www.googleapis.com/auth/youtube.readonly',
+      // Streamers: read-only YouTube + read-only Analytics (exact subscriber count). Bot: chat posting.
+      scope: chatWrite || botAccount || sharedBot
+        ? 'https://www.googleapis.com/auth/youtube.force-ssl'
+        : 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly',
       access_type: 'offline', prompt: 'consent select_account', state,
     });
   } else {

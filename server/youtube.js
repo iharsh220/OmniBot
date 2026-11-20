@@ -75,6 +75,35 @@ function endStream(st, L) {
   Object.assign(st, { live: false, viewers: null, title: null, chatConnected: false, _chatId: null, _videoId: null, _pageToken: null, _nextLiveCheckAt: Date.now() + 60_000 });
 }
 
+const hasAnalytics = (acc) => String(acc.scope || '').includes('yt-analytics.readonly');
+
+/** Exact subscriber count from YouTube Analytics: lifetime subscribersGained − subscribersLost (every 30 min). */
+async function exactSubscribers(ctx, acc, now) {
+  const st = ctx.st;
+  if (!hasAnalytics(acc) || now < (st._nextExactAt || 0)) return;
+  st._nextExactAt = now + 30 * 60_000;
+  try {
+    const url = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
+    url.search = new URLSearchParams({
+      ids: 'channel==MINE',
+      startDate: String(st._publishedAt || '2005-04-23').slice(0, 10),
+      endDate: new Date().toISOString().slice(0, 10),
+      metrics: 'subscribersGained,subscribersLost',
+    });
+    const token = await getAccessToken(ctx.uid, 'youtube');
+    const r = await tfetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error?.message || `HTTP ${r.status}`);
+    const [gained, lost] = j.rows?.[0] || [];
+    if (Number.isFinite(gained) && Number.isFinite(lost)) st._exactSubs = gained - lost;
+    st._exactError = null;
+  } catch (e) {
+    if (st._exactError !== e.message) ctx.logs.push({ level: 'warn', source: 'youtube', message: `Exact subscriber count unavailable: ${e.message}` });
+    st._exactError = e.message;
+    st._nextExactAt = now + 6 * 3600_000; // don't hammer when the API/scope isn't available
+  }
+}
+
 export const youtubeDue = (st, now) => now >= (st._nextSubsAt || 0)
   || (st.live ? now >= (st._nextChatAt || 0) || now >= (st._nextStatsAt || 0) : now >= (st._nextLiveCheckAt || 0));
 
@@ -89,7 +118,17 @@ export async function youtubeStep(ctx, acc) {
     if (now >= (st._nextSubsAt || 0)) {
       st._nextSubsAt = now + 5 * 60_000;
       const ch = (await yt(ctx, '/channels', { part: 'statistics,snippet', id: acc.channelId })).items?.[0];
-      if (ch) Object.assign(st, { subscribers: ch.statistics.hiddenSubscriberCount ? null : Number(ch.statistics.subscriberCount), channelName: ch.snippet.title, avatar: ch.snippet.thumbnails?.default?.url || st.avatar });
+      if (ch) {
+        st._roundedSubs = ch.statistics.hiddenSubscriberCount ? null : Number(ch.statistics.subscriberCount);
+        st._publishedAt = ch.snippet.publishedAt;
+        Object.assign(st, { channelName: ch.snippet.title, avatar: ch.snippet.thumbnails?.default?.url || st.avatar });
+      }
+      await exactSubscribers(ctx, acc, now);
+      // The Data API rounds DOWN to 3 significant digits (27,867 → 27,800). Analytics gives the exact
+      // lifetime count but lags 1–2 days, so never show less than the rounded floor.
+      const exact = st._exactSubs;
+      st.subscribers = exact != null && st._roundedSubs != null ? Math.max(exact, st._roundedSubs) : exact ?? st._roundedSubs ?? null;
+      st.subscribersExact = exact != null;
     }
     if (!st.live) {
       if (now < (st._nextLiveCheckAt || 0)) return;
