@@ -1,13 +1,13 @@
 import { DEFAULTS, decodeSettings } from '/js/settings.js';
-import { ChatView, StatsView } from '/js/render.js';
-import { connectLive, startDemo } from '/js/feed.js';
+import { ChatView, StatsView, EggsView } from '/js/render.js';
+import { connectLive, startDemo, startEggDemo } from '/js/feed.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
 const id = (location.pathname.match(/^\/w\/([\w-]+)/) || [])[1];
 
 async function main() {
-  let type = params.get('type') === 'stats' ? 'stats' : 'chat';
+  let type = ['stats', 'eggs'].includes(params.get('type')) ? params.get('type') : 'chat';
   let base = DEFAULTS;
   let version = null;
   if (id) {
@@ -21,7 +21,16 @@ async function main() {
   // URL query params (optional) override the saved settings.
   const settingsFor = (b) => decodeSettings(location.search, b);
   const s = settingsFor(base);
-  const view = type === 'stats' ? new StatsView(app, s) : new ChatView(app, s);
+  const view = type === 'stats' ? new StatsView(app, s) : type === 'eggs' ? new EggsView(app, s) : new ChatView(app, s);
+
+  if (type === 'eggs') {
+    if (!id || params.get('demo') === '1') { startEggDemo((list) => view.setItems(list)); return; }
+    connectLive(`/api/w/${id}/poll`, {
+      onEggs: (list) => view.setItems(list),
+      onSettings: ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings })),
+    }, { v: version, interval: 8_000 });
+    return;
+  }
 
   if (!id || params.get('demo') === '1') {
     startDemo({

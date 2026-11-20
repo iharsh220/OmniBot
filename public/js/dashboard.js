@@ -1,6 +1,6 @@
 import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings } from './settings.js';
-import { ChatView, StatsView, createMessageEl, ICONS } from './render.js';
-import { connectLive, startDemo } from './feed.js';
+import { ChatView, StatsView, EggsView, createMessageEl, ICONS } from './render.js';
+import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -113,12 +113,13 @@ const PAGES = {
 const TABS = {
   chat: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'message'], ['filters', 'Filters', 'filter']],
   stats: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'chart']],
+  eggs: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'egg']],
 };
 const SECTION_INFO = {
   theme: () => ['10 ready-made looks — pick one to start'],
   style: () => ['Colors, border, background, fonts, shape & avatar'],
-  layout: (type) => [type === 'chat' ? 'Alignment, width, animation & timing' : 'Row, column or pill · alignment'],
-  content: (type) => [type === 'chat' ? 'Avatar, badges, time, events & emotes' : 'Viewers, subs, total · titles, icons & labels'],
+  layout: (type) => [type === 'chat' ? 'Alignment, width, animation & timing' : type === 'eggs' ? 'One list or panels per location' : 'Row, column or pill · alignment'],
+  content: (type) => [type === 'chat' ? 'Avatar, badges, time, events & emotes' : type === 'eggs' ? 'How many eggs, latest card, details & highlights' : 'Viewers, subs, total · titles, icons & labels'],
   filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
@@ -217,6 +218,21 @@ const GROUPS = [
     { k: 'statsTotalText', t: 'text', label: 'Total card title', placeholder: 'Total watching', show: (s) => s.statsTotal && s.statsViewers },
     { k: 'statsCompact', t: 'toggle', label: 'Compact numbers', hint: '15,320 → 15.3K' },
     { k: 'statsNumSize', t: 'range', label: 'Number size', min: 60, max: 200, unit: '%' },
+  ] },
+  { tab: 'layout', title: 'Eggs layout', types: ['eggs'], fields: [
+    { k: 'eggsLayout', t: 'seg', label: 'Layout', options: [['board', 'Stock board'], ['list', 'One list'], ['grouped', 'By location']] },
+    { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => s.eggsLayout !== 'list', hint: 'Tiles / panels per row' },
+  ] },
+  { tab: 'content', title: 'Eggs', types: ['eggs'], fields: [
+    { k: 'eggsCount', t: 'range', label: 'How many eggs', min: 1, max: 40 },
+    { k: 'eggsLatest', t: 'toggle', label: 'Latest egg highlight', hint: 'Board: LIVE NOW / LATEST pill per rarity. List: a big glowing card' },
+    { k: 'eggsTitle', t: 'text', label: 'List title', placeholder: 'Latest eggs', show: (s) => s.eggsLayout === 'list' },
+    { k: 'eggsLocation', t: 'toggle', label: 'Show location', show: (s) => s.eggsLayout !== 'grouped' },
+    { k: 'eggsDetails', t: 'toggle', label: 'Money & speed' },
+  ] },
+  { tab: 'content', title: 'Freshness', types: ['eggs'], fields: [
+    { k: 'eggsNewMinutes', t: 'range', label: 'Highlight new for', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Off' : `${v} min`) },
+    { k: 'eggsMaxAge', t: 'range', label: 'Hide older than', min: 0, max: 720, step: 15, fmt: (v) => (v === 0 ? 'Never' : v < 60 ? `${v} min` : `${(v / 60).toFixed(v % 60 ? 1 : 0)} h`) },
   ] },
   { tab: 'layout', title: 'Stats layout', types: ['stats'], fields: [
     { k: 'statsLayout', t: 'seg', label: 'Style', options: [['row', 'Row'], ['column', 'Column'], ['pill', 'Pill']] },
@@ -422,7 +438,7 @@ function renderConfig() {
 
 function renderWidgetPicker() {
   $('#widget-select').replaceChildren(...widgets.map((w) => {
-    const o = h('option', { value: w.id }, `${w.type === 'chat' ? '💬' : '📊'}  ${w.name}`);
+    const o = h('option', { value: w.id }, `${w.type === 'chat' ? '💬' : w.type === 'eggs' ? '🥚' : '📊'}  ${w.name}`);
     if (w.id === current?.id) o.selected = true;
     return o;
   }));
@@ -438,6 +454,7 @@ function selectWidget(id) {
   settings = normalizeSettings(current.settings);
   $('#chat-frame').hidden = current.type !== 'chat';
   $('#stats-frame').hidden = current.type !== 'stats';
+  $('#eggs-frame').hidden = current.type !== 'eggs';
   saveState('');
   renderWidgetPicker();
   renderConfig();
@@ -447,7 +464,8 @@ function selectWidget(id) {
 async function newWidget() {
   const picker = h('div', { class: 'seg full', 'data-value': 'chat' },
     h('button', { type: 'button', class: 'on', 'data-v': 'chat' }, ic('message'), 'Chat'),
-    h('button', { type: 'button', 'data-v': 'stats' }, ic('chart'), 'Stats'));
+    h('button', { type: 'button', 'data-v': 'stats' }, ic('chart'), 'Stats'),
+    h('button', { type: 'button', 'data-v': 'eggs' }, ic('egg'), 'Eggs'));
   picker.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -458,7 +476,10 @@ async function newWidget() {
   if (!type) return;
   try {
     const n = widgets.filter((x) => x.type === type).length + 1;
-    const w = await api('/api/widgets', { method: 'POST', body: JSON.stringify({ type, name: `${type === 'chat' ? 'Chat' : 'Stats'} ${n}`, settings: current ? settings : {} }) });
+    // Eggs overlay starts from a dark "stock board" look (like an in-game notifier panel).
+    const EGG_PRESET = { ...DEFAULTS, theme: 'midnight', font: 'Inter', fontSize: 15, fontWeight: 500, nameWeight: 800, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#4ade80', radius: 10, padding: 10, gap: 8, shadow: true, pageBgOpacity: 0 };
+    const startSettings = type === 'eggs' ? EGG_PRESET : current && current.type === type ? settings : {};
+    const w = await api('/api/widgets', { method: 'POST', body: JSON.stringify({ type, name: `${{ chat: 'Chat', stats: 'Stats', eggs: 'Eggs' }[type]} ${n}`, settings: startSettings }) });
     widgets.push(w);
     selectWidget(w.id);
     toast('Widget created');
@@ -504,15 +525,25 @@ async function rotateWidget() {
 // ── preview ──
 const chatView = new ChatView($('#chat-preview'), settings);
 const statsView = new StatsView($('#stats-preview'), settings);
+const eggsView = new EggsView($('#eggs-preview'), settings);
+let eggDemo = null;
+let eggLiveTimer = null;
+async function loadLiveEggs() {
+  try { const r = await api('/api/eggs'); eggsView.setItems(r.items || []); } catch { /* keep last */ }
+}
 
 function refreshPreview() {
   chatView.setSettings({ ...settings });
   statsView.setSettings({ ...settings });
+  eggsView.setSettings({ ...settings });
   if (feedMode === 'live') statsView.setState(liveState || {});
   const url = current ? widgetUrl(current) : '';
   $('#url').value = url;
   $('#open').href = url || '#';
-  $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140') : '400 × 700';
+  $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
+    : current?.type === 'eggs' ? (settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 760' : '1200 × 700') : '400 × 700';
+  $('#eggs-frame').dataset.size = `${settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 760' : '1200 × 700'} · OBS size`;
+  $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list');
 }
 
 function setFeed(mode) {
@@ -520,6 +551,10 @@ function setFeed(mode) {
   demo?.stop();
   demo = null;
   chatView.clear();
+  eggDemo?.stop();
+  clearInterval(eggLiveTimer);
+  if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list));
+  else { loadLiveEggs(); eggLiveTimer = setInterval(loadLiveEggs, 10_000); }
   if (mode === 'demo') demo = startDemo({ onChat: (m) => chatView.add(m), onState: (st) => statsView.setState(st), platforms: () => ['youtube', 'kick'].filter((p) => settings[p]) });
   else { chatView.setHistory(liveHistory); statsView.setState(liveState || {}); }
   $$('#feed-mode button').forEach((b) => b.classList.toggle('on', b.dataset.v === mode));
@@ -600,7 +635,7 @@ function renderOverview() {
     h('div', { class: 'card-head' }, h('h3', {}, 'Your widgets'), h('span', { class: 'sub' }, 'Paste these into OBS'),
       h('div', { class: 'actions' }, h('a', { class: 'btn sm', href: '#studio' }, ic('palette'), 'Studio'))),
     h('ul', { class: 'wlist' }, widgets.map((w) => h('li', { class: 'wrow' },
-      h('div', { class: 'wicon', html: icon(w.type === 'chat' ? 'message' : 'chart') }),
+      h('div', { class: 'wicon', html: icon(w.type === 'chat' ? 'message' : w.type === 'eggs' ? 'egg' : 'chart') }),
       h('div', { class: 'meta' }, h('b', {}, w.name), h('code', {}, widgetUrl(w))),
       h('div', { class: 'actions' },
         h('button', { class: 'btn sm', title: 'Copy URL', onclick: () => copyText(widgetUrl(w)) }, ic('copy'), 'Copy'),

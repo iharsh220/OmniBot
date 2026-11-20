@@ -5,7 +5,7 @@ import { config, tfetch } from './config.js';
 import * as db from './store.js';
 
 const DISCORD = 'https://discord.com/api/v10';
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 150;
 const YT_MAX = 200; // YouTube live chat message length limit
 
 // enabled = master ON/OFF · youtube / kick = where to post · commandEnabled = !egghistory
@@ -16,6 +16,13 @@ export const eggSettings = (user) => ({ ...defaultEggSettings(), ...(user.egg ||
 const stripEmoji = (s) => String(s || '').replace(/<a?:\w+:\d+>/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
 
 /** Parse one Discord message into 0..n eggs. Handles the embed format of "SenZ V2 | Steal An Egg Notifier". */
+// Egg picture = the embed thumbnail (a Discord emoji PNG). Only Discord CDN URLs are kept.
+const IMG_RE = /^https:\/\/(?:cdn|media)\.discordapp\.(?:com|net)\/[\w./-]+(?:\?[\w=&.-]*)?$/;
+function eggImage(e) {
+  const u = String(e.thumbnail?.url || e.image?.url || '');
+  return IMG_RE.test(u) && u.length < 400 ? u : null;
+}
+
 export function parseEggMessage(m) {
   const out = [];
   (m.embeds || []).forEach((e, i) => {
@@ -38,6 +45,7 @@ export function parseEggMessage(m) {
       location: field('Location'),
       money: field('Money'),
       speed: field('Recommended Speed'),
+      image: eggImage(e),
     });
   });
   if (!out.length && m.content) { // plain-text fallback, e.g. "Egg: Divine"
@@ -47,9 +55,9 @@ export function parseEggMessage(m) {
   return out;
 }
 
-async function fetchMessages(channelId, afterId) {
+async function fetchMessages(channelId, afterId, limit) {
   const url = new URL(`${DISCORD}/channels/${channelId}/messages`);
-  url.searchParams.set('limit', afterId ? '50' : '15');
+  url.searchParams.set('limit', String(limit || (afterId ? 50 : 15)));
   if (afterId) url.searchParams.set('after', afterId);
   const r = await tfetch(url, { headers: { Authorization: `Bot ${config.discord.botToken}` } });
   if (!r.ok) {
@@ -131,7 +139,18 @@ export async function refreshGlobalFeed() {
     error = e.message;
     logs.push({ level: 'warn', source: 'eggs', message: e.message });
   }
+  // One-time: feeds saved before egg pictures existed get their images from the last 100 messages.
+  const pics = new Map();
+  if (!error && !reset && !g.imagesV1 && g.items.some((x) => !('image' in x))) {
+    try {
+      for (const m of await fetchMessages(channelId, null, 100)) for (const e of parseEggMessage(m)) if (e.image) pics.set(e.id, e.image);
+    } catch { /* try again next time */ }
+  }
   g = await db.update(GLOBAL, (G) => {
+    if (pics.size) {
+      G.items = G.items.map((x) => ('image' in x ? x : { ...x, image: pics.get(x.id) || null }));
+      G.imagesV1 = true;
+    }
     if (reset) { G.items = []; G.channelId = channelId; }
     const have = new Set(G.items.map((x) => x.id));
     G.items = [...fresh.filter((e) => !have.has(e.id)).reverse(), ...G.items].slice(0, MAX_HISTORY); // newest first

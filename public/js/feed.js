@@ -41,6 +41,7 @@ export function connectLive(url, handlers = {}, opts = {}) {
       }
       if (d.settings && v !== null && d.v !== v) h.onSettings?.({ settings: d.settings });
       if (d.v !== undefined) v = d.v;
+      if (d.eggs) h.onEggs?.(d.eggs);
       for (const l of d.logs || []) h.onLog?.(l);
       if (d.logCursor !== undefined) logCursor = d.logCursor;
     } catch {
@@ -108,4 +109,31 @@ export function startDemo({ onChat, onState, platforms = () => ['youtube', 'kick
     onState?.(structuredClone(st));
   }, 3000);
   return { stop() { clearTimeout(t); clearInterval(s); } };
+}
+
+// ── Demo eggs for previews (/demo?type=eggs and the Studio preview) ──
+const DEMO_EGGS = [
+  ['Stormclaw Wolf', 'Secret', 'Stormlands', '~$36m/s', '150M'], ['Centaur', 'Secret', 'Angels', '~$350m/s', '20B'],
+  ['Mosasaurus', 'Eternal', 'Prehistoric', '~$180m/s', '20.5M'], ['King Snake', 'Secret', 'Jungle', '~$3.5m/s', '50K'],
+  ['Tempest Bull', 'Eternal', 'Stormlands', '~$215m/s', '150M'], ['Gargoyle', 'Secret', 'Demons', '~$225m/s', '20B'],
+  ['Pure Jellyfish', 'Secret', 'Angels', '~$225m/s', '20B'], ['Tideler', 'Secret', 'Aliens', '~$2.8b/s', '250B'],
+  ['Kitsune', 'Eternal', 'Cherry Blossom', '~$90m/s', '5B'], ['Kraken', 'Secret', 'Abyss Ocean', '~$410m/s', '40B'],
+  ['Lava Dragon', 'Eternal', 'Volcano', '~$120m/s', '8B'], ['Ice Dragon', 'Secret', 'Snow', '~$75m/s', '3B'],
+  ['Royal Skywhale', 'Divine', 'Sky Islands', '~$1.2b/s', '500B'], ['Phoenix', 'Eternal', 'Volcano', '~$140m/s', '9B'],
+  ['Cosmic Dragon', 'Secret', 'Space', '~$95m/s', '6B'], ['Archangel', 'Divine', 'Angels', '~$900m/s', '300B'],
+  ['Yeti', 'Secret', 'Snow', '~$60m/s', '2B'], ['Unicorn', 'Divine', 'Cherry Blossom', '~$700m/s', '200B'],
+  ['Pegasus', 'Eternal', 'Angels', '~$160m/s', '10B'], ['Cerberus', 'Secret', 'Demons', '~$250m/s', '22B'],
+];
+let demoSeq = 0;
+const demoEgg = (i, ts) => {
+  const [name, rarity, location, money, speed] = DEMO_EGGS[i % DEMO_EGGS.length];
+  return { id: `demo-egg-${demoSeq++}`, ts, name, rarity, location, money, speed };
+};
+/** Calls onEggs(list newest-first) now and whenever a new demo egg "spawns". */
+export function startEggDemo(onEggs, everyMs = 6000) {
+  let list = DEMO_EGGS.map((_, i) => demoEgg(i, Date.now() - (i * 7 + 2) * 60_000));
+  onEggs(list);
+  let i = 3;
+  const t = setInterval(() => { list = [demoEgg(i++, Date.now()), ...list].slice(0, 40); onEggs(list); }, everyMs);
+  return { stop() { clearInterval(t); } };
 }

@@ -539,3 +539,6 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 .admin-card .card-head { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .acc-reset { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.eggs-frame { width: 420px; max-width: 100%; height: min(700px, 100%); }
+.eggs-frame.wide { width: min(1200px, 100%); }
+.eggs-frame > div { width: 100%; height: 100%; }

@@ -50,6 +50,16 @@ export const DEFAULTS = {
   statsViewersText: 'watching',
   statsSubsText: '', // empty = "subscribers" / "followers"
   statsTotalText: 'Total watching',
+  // ── eggs widget (Steal an Egg spawns overlay) ──
+  eggsLayout: 'board', // board (stock board by rarity) | list | grouped (panels per location)
+  eggsCount: 12, // how many eggs to show
+  eggsLatest: true, // big card for the newest egg
+  eggsTitle: 'Latest eggs', // list panel heading ('' = none)
+  eggsDetails: true, // money / speed
+  eggsLocation: true, // location next to each egg (list layout)
+  eggsNewMinutes: 5, // highlight eggs younger than this
+  eggsMaxAge: 0, // hide eggs older than X minutes (0 = never)
+  eggsColumns: 4, // board / grouped layout columns
   // ── extra style ──
   borderWidth: 0, // px, 0 = none
   borderColor: '#ffffff',
@@ -137,14 +147,16 @@ const ENUMS = {
   timeFormat: ['24h', '12h'],
   statsHeader: ['both', 'icon', 'name', 'none'],
   statsAlign: ['left', 'center'],
+  eggsLayout: ['board', 'list', 'grouped'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
+  eggsCount: [1, 50], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6],
 };
-const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30 };
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40 };
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;
@@ -211,7 +223,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
-    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,
@@ -233,6 +245,7 @@ export function applyRoot(el, s, kind) {
     '--maxw': `${s.maxWidth}%`,
     '--emote': s.emoteSize / 100,
     '--stat-num': s.statsNumSize / 100,
+    '--egg-cols': s.eggsColumns,
   };
   for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
 }

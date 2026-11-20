@@ -12,7 +12,7 @@ import {
 import { log, addLogs, addEvents, readEvents, readLogs, readHistory } from './feed.js';
 import { tick, publicState } from './engine.js';
 import { verifyKickWebhook, webhookToEvents } from './kick.js';
-import { eggSettings, readEggs, readFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
+import { eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
 import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickChatReady } from './kick.js';
 import { isBotAccount, getSystemBot, renewSession } from './auth.js';
@@ -29,7 +29,7 @@ app.use((req, _res, next) => {
 });
 app.use(['/api', '/auth', '/webhooks'], securityHeaders);
 
-const WIDGET_TYPES = ['chat', 'stats'];
+const WIDGET_TYPES = ['chat', 'stats', 'eggs'];
 const cleanName = (v) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 60);
 const widgetOut = (w) => ({ id: w.id, type: w.type, name: w.name, settings: w.settings || {}, updatedAt: w.updatedAt });
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
@@ -119,6 +119,13 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
   const w = await db.get(`widget/${req.params.id}`);
   const user = w && (await getUser(w.uid));
   if (!w || !user) return res.status(404).json({ error: 'Widget not found' });
+  if (w.type === 'eggs') {
+    // Eggs overlay: the shared Steal-an-Egg feed (refreshed at most once per EGG_POLL_MS for everyone).
+    const { feed } = await refreshGlobalFeed();
+    const out = { eggs: (feed.items || []).slice(0, 150), v: w.updatedAt };
+    if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
+    return res.json(out);
+  }
   const live = await tick(user);
   const out = { ...(await readEvents(user.id, num(req.query.c))), state: publicState(live, user, { forWidget: true }), v: w.updatedAt };
   if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
