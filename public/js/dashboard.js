@@ -26,7 +26,11 @@ const ic = (name) => h('span', { html: icon(name), style: 'display:contents' });
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { credentials: 'same-origin', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
-  if (r.status === 401) { location.replace('/login'); throw new Error('Signed out'); }
+  if (r.status === 401) {
+    const me = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
+    if (me && me.status === 401) { location.replace('/login'); throw new Error('Signed out'); }
+    throw new Error('Connection problem — please try again');
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
   return j;

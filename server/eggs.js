@@ -160,6 +160,7 @@ export async function kickHistoryReply(uid, user) {
   if (!s.commandEnabled || !s.kick) return null;
   let reply = null;
   await db.update(`eggs/${uid}`, (doc) => {
+    reply = null; // may re-run on an etag conflict
     if (Date.now() - (doc.lastKickCmdAt || 0) < 30_000) return undefined;
     doc.lastKickCmdAt = Date.now();
     reply = historyMessages(doc.items, 10, 500)[0];

@@ -22,7 +22,12 @@ export function connectLive(url, handlers = {}, opts = {}) {
       if (logCursor !== null) q.set('l', logCursor);
       if (v !== null) q.set('v', v);
       const r = await fetch(`${url}?${q}`, { credentials: 'same-origin', cache: 'no-store' });
-      if (r.status === 401) { h.onUnauthorized?.(); return; }
+      if (r.status === 401) {
+        // Double-check before signing out (avoid a one-off glitch logging the user out).
+        const me = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
+        if (me && me.status === 401) { h.onUnauthorized?.(); return; }
+        throw new Error('auth check');
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       fails = 0;

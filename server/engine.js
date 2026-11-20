@@ -28,6 +28,7 @@ export async function tick(user) {
   // Short lock so several OBS sources polling at once don't repeat the same API calls.
   let claimed = false;
   live = await db.update(`live/${uid}`, (L) => {
+    claimed = false; // may re-run on an etag conflict — only the winning write counts
     if (L._lockUntil > now) return undefined;
     L._lockUntil = now + 9_000;
     claimed = true;

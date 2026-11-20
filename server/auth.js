@@ -38,11 +38,32 @@ export async function currentUser(req) {
   const t = parseCookies(req)[SESSION()];
   let user = null;
   if (t && t.length < 200) {
-    const s = await db.get(`session/${sha256(t)}`);
-    if (s && s.expiresAt > Date.now()) user = (await getUser(s.uid)) || null;
+    const hash = sha256(t);
+    const s = await db.get(`session/${hash}`);
+    if (s && s.expiresAt > Date.now()) {
+      user = (await getUser(s.uid)) || null;
+      if (user) req._session = { token: t, hash, expiresAt: s.expiresAt };
+    }
   }
   req._user = user;
   return user;
+}
+
+/**
+ * Sliding sessions: an active user is never signed out. Once a day the session is pushed
+ * 30 days ahead and the cookie re-issued. Returns a Set-Cookie value or null.
+ */
+export async function renewSession(req) {
+  const s = req._session;
+  if (!s || s.expiresAt - Date.now() > SESSION_TTL - 86_400_000) return null;
+  const expiresAt = Date.now() + SESSION_TTL;
+  await db.set(`session/${s.hash}`, { uid: req._user.id, expiresAt });
+  await updateUser(req._user.id, (u) => {
+    if (!u) return undefined;
+    u.sessions = (u.sessions || []).map((x) => (x.hash === s.hash ? { ...x, expiresAt } : x));
+    return u;
+  });
+  return cookie(SESSION(), s.token, SESSION_TTL / 1000);
 }
 
 export async function destroySession(req) {
@@ -267,30 +288,78 @@ export async function ensureDefaultWidgets(uid) {
 }
 
 // ── Access tokens (auto refresh + persist) ──
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const PROVIDER_NAME = { youtube: 'YouTube', kick: 'Kick' };
+
+/**
+ * Valid access token for a connected account (or the streamer's own YouTube bot with bot=true).
+ *
+ * Refreshing is "single-flight" across serverless instances: one request claims a short lock on the
+ * account (etag write), refreshes and saves; the others wait and reuse the new token. This matters
+ * for Kick, which ROTATES refresh tokens — two parallel refreshes would otherwise burn the token
+ * ("The provided authorization grant … is invalid") and force a reconnect.
+ */
 export async function getAccessToken(uid, provider, { bot = false } = {}) {
-  const u0 = await getUser(uid);
-  const acc = bot ? u0?.ytBot : u0?.accounts?.[provider];
-  if (!acc) throw new Error('Account was disconnected');
-  if (acc.expiresAt && Date.now() < acc.expiresAt - 90_000) return decrypt(acc.accessToken);
-  const refresh = decrypt(acc.refreshToken);
-  if (!refresh) throw Object.assign(new Error('Session expired — please reconnect this account'), { reconnect: true });
-  let t;
-  try {
-    t = provider === 'youtube'
-      ? await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' })
-      : await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
-  } catch (e) {
-    throw Object.assign(new Error(`Token refresh failed (${e.message}) — please reconnect`), { reconnect: true });
+  const pick = (u) => (bot ? u?.ytBot : u?.accounts?.[provider]);
+  const label = bot ? 'YouTube bot' : PROVIDER_NAME[provider] || provider;
+  const reconnectError = (why) => Object.assign(new Error(`${label} login expired${why ? ` (${why})` : ''} — please reconnect ${label}`), { reconnect: true });
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const acc = pick(await getUser(uid));
+    if (!acc) throw new Error(`${label} was disconnected`);
+    const now = Date.now();
+    // Refresh 5 min early; until then the current token is fine.
+    if (acc.expiresAt && now < acc.expiresAt - 5 * 60_000) return decrypt(acc.accessToken);
+
+    // Someone else is refreshing → use the current token if it still works, otherwise wait.
+    if (acc.refreshingUntil > now) {
+      if (acc.expiresAt && now < acc.expiresAt - 30_000) return decrypt(acc.accessToken);
+      await sleep(700);
+      continue;
+    }
+
+    // Claim the refresh.
+    let claimed = null;
+    await updateUser(uid, (x) => {
+      claimed = null; // update() may re-run this on an etag conflict — only the winning write counts
+      const a = pick(x);
+      if (!a || a.refreshingUntil > Date.now()) return undefined;
+      a.refreshingUntil = Date.now() + 20_000;
+      claimed = { refreshToken: a.refreshToken, accessToken: a.accessToken };
+      return x;
+    });
+    if (!claimed) { await sleep(500); continue; }
+
+    const release = (patch = {}) => updateUser(uid, (x) => { const a = pick(x); if (!a) return undefined; Object.assign(a, patch); delete a.refreshingUntil; return x; });
+    const refresh = decrypt(claimed.refreshToken);
+    if (!refresh) { await release(); throw reconnectError('no refresh token'); }
+
+    let t;
+    try {
+      t = provider === 'youtube'
+        ? await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' })
+        : await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
+    } catch (e) {
+      // Maybe another instance already rotated it before our claim — use its fresh token if so.
+      const fresh = pick(await getUser(uid));
+      await release();
+      if (fresh && fresh.accessToken !== claimed.accessToken && fresh.expiresAt > Date.now() + 60_000) return decrypt(fresh.accessToken);
+      if (/network|timeout|fetch failed|aborted|5\d\d/i.test(e.message)) throw new Error(`${label} token refresh failed temporarily: ${e.message}`);
+      throw reconnectError(e.message.slice(0, 80));
+    }
+
+    // Save the new tokens (retried by update()); Kick's new refresh token must never be lost.
+    await release({
+      accessToken: encrypt(t.access_token),
+      ...(t.refresh_token ? { refreshToken: encrypt(t.refresh_token) } : {}),
+      expiresAt: Date.now() + (t.expires_in || 3600) * 1000,
+    });
+    return t.access_token;
   }
-  await updateUser(uid, (x) => {
-    const a = bot ? x?.ytBot : x?.accounts?.[provider];
-    if (!a) return undefined;
-    a.accessToken = encrypt(t.access_token);
-    if (t.refresh_token) a.refreshToken = encrypt(t.refresh_token);
-    a.expiresAt = Date.now() + (t.expires_in || 3600) * 1000;
-    return x;
-  });
-  return t.access_token;
+  // Still waiting on another refresh: hand back whatever we have (it may still be valid).
+  const acc = pick(await getUser(uid));
+  if (acc?.accessToken) return decrypt(acc.accessToken);
+  throw reconnectError();
 }
 
 export function publicAccount(a) {

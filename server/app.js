@@ -15,7 +15,7 @@ import { verifyKickWebhook, webhookToEvents } from './kick.js';
 import { eggSettings, readEggs, formatEgg, kickHistoryReply } from './eggs.js';
 import { postChat, youtubeBotReady, usesSharedBot, canWriteChat } from './youtube.js';
 import { postKickChat, kickChatReady } from './kick.js';
-import { disconnectYouTubeBot, isAdmin, getSystemBot, saveSystemBot, disconnectSystemBot } from './auth.js';
+import { disconnectYouTubeBot, isAdmin, getSystemBot, saveSystemBot, disconnectSystemBot, renewSession } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
 
 const app = express();
@@ -132,6 +132,7 @@ const authed = ah(async (req, res, next) => {
   if (!user) return res.status(401).json({ error: 'Not logged in' });
   if (req.method !== 'GET' && !sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
   req.user = user;
+  try { const c = await renewSession(req); if (c) setCookies(res, [c]); } catch { /* renewal is best effort */ }
   next();
 });
 const api = express.Router();

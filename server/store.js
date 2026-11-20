@@ -36,8 +36,9 @@ const local = {
 };
 
 // ── Netlify Blobs ──
-let blobs = null;
-const remote = () => (blobs ||= getStore({ name: 'omnichat', consistency: 'strong' }));
+// Never cache the store object: Netlify gives each invocation a short-lived Blobs token, and a store
+// created during an earlier invocation fails later with "Failed to decode token: Token expired".
+const remote = () => getStore({ name: 'omnichat', consistency: 'strong' });
 const s = () => (useBlobs() ? remote() : local);
 
 export const get = (k) => (useBlobs() ? remote().get(k, { type: 'json' }) : local.get(k));
