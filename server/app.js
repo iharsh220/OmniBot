@@ -2,7 +2,7 @@
 // netlify/functions/api.mjs (Netlify, via serverless-http).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
-import { securityHeaders, sameOrigin, limit, ah } from './http.js';
+import { securityHeaders, sameOrigin, limit, ah, parseCookies } from './http.js';
 import { randomId } from './crypto.js';
 import * as db from './store.js';
 import {
@@ -129,7 +129,11 @@ app.get('/api/providers', (_req, res) => res.json(providersConfigured()));
 // ── Authenticated API ──
 const authed = ah(async (req, res, next) => {
   const user = await currentUser(req);
-  if (!user) return res.status(401).json({ error: 'Not logged in' });
+  if (!user) {
+    // Shows up in Netlify → Logs → Functions → api, to diagnose unexpected sign-outs.
+    console.warn(`[auth] 401 ${req.method} ${req.path}: ${req._authReason} (cookies: ${Object.keys(parseCookies(req)).join(',') || 'none'})`);
+    return res.status(401).json({ error: 'Not logged in', reason: req._authReason });
+  }
   if (req.method !== 'GET' && !sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
   req.user = user;
   try { const c = await renewSession(req); if (c) setCookies(res, [c]); } catch { /* renewal is best effort */ }

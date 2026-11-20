@@ -25,7 +25,7 @@ export function connectLive(url, handlers = {}, opts = {}) {
       if (r.status === 401) {
         // Double-check before signing out (avoid a one-off glitch logging the user out).
         const me = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
-        if (me && me.status === 401) { h.onUnauthorized?.(); return; }
+        if (me && me.status === 401) { const j = await me.json().catch(() => ({})); h.onUnauthorized?.(j.reason); return; }
         throw new Error('auth check');
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);

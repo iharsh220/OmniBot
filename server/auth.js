@@ -37,12 +37,18 @@ export async function currentUser(req) {
   if (req._user !== undefined) return req._user;
   const t = parseCookies(req)[SESSION()];
   let user = null;
+  req._authReason = 'no session cookie';
   if (t && t.length < 200) {
     const hash = sha256(t);
-    const s = await db.get(`session/${hash}`);
-    if (s && s.expiresAt > Date.now()) {
+    let s = await db.get(`session/${hash}`);
+    if (!s) { await new Promise((r) => setTimeout(r, 300)); s = await db.get(`session/${hash}`); } // tolerate a read right after login
+    if (!s) req._authReason = 'session not found';
+    else if (s.expiresAt <= Date.now()) req._authReason = 'session expired';
+    else {
       user = (await getUser(s.uid)) || null;
-      if (user) req._session = { token: t, hash, expiresAt: s.expiresAt };
+      if (!user) { await new Promise((r) => setTimeout(r, 300)); user = (await getUser(s.uid)) || null; }
+      if (user) { req._session = { token: t, hash, expiresAt: s.expiresAt }; req._authReason = null; }
+      else req._authReason = `user ${s.uid} not found`;
     }
   }
   req._user = user;

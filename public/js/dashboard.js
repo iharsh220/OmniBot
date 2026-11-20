@@ -28,7 +28,11 @@ async function api(path, opts = {}) {
   const r = await fetch(path, { credentials: 'same-origin', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
   if (r.status === 401) {
     const me = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
-    if (me && me.status === 401) { location.replace('/login'); throw new Error('Signed out'); }
+    if (me && me.status === 401) {
+      const j = await me.json().catch(() => ({}));
+      location.replace('/login?error=' + encodeURIComponent(`Signed out (${j.reason || 'session ended'}). Please sign in again.`));
+      throw new Error('Signed out');
+    }
     throw new Error('Connection problem — please try again');
   }
   const j = await r.json().catch(() => ({}));
@@ -1141,7 +1145,7 @@ async function boot() {
   if (params.get('error')) { toast(params.get('error'), 'err'); history.replaceState(null, '', '/' + location.hash); }
 
   connectLive('/api/poll', {
-    onUnauthorized: () => location.replace('/login'),
+    onUnauthorized: (reason) => location.replace('/login?error=' + encodeURIComponent(`Signed out (${reason || 'session ended'}). Please sign in again.`)),
     onStatus: (ok) => { serverOk = ok; renderStatus(); },
     onState: (st) => {
       liveState = st;
