@@ -755,6 +755,10 @@ function renderConnections() {
         h('div', {}, h('span', {}, 'Status'), h('b', {}, st.live ? 'Live' : 'Offline')),
         h('div', {}, h('span', {}, 'Viewers'), h('b', {}, st.live ? fmtN(st.viewers) : '—')),
         h('div', {}, h('span', {}, p === 'youtube' || kickSubs ? 'Subscribers' : 'Followers'), h('b', {}, fmtN(p === 'youtube' || kickSubs ? st.subscribers : st.followers)))));
+      if (p === 'youtube' && st.subscribersMode === 'live' && st.subscribersConfirmed != null) {
+        body.append(h('div', { class: 'notice ok' }, ic('users'), h('div', {},
+          `Live subscribers ≈ ${fmtN(st.subscribers)} · confirmed ${fmtN(st.subscribersConfirmed)} (YouTube Analytics is 2–3 days behind, the gap is estimated from your daily growth).`)));
+      }
       if (p === 'youtube' && st.connected && st.subscribers != null && !st.subscribersExact) {
         body.append(h('div', { class: 'notice info' }, ic('info'), h('div', {},
           'Showing YouTube’s rounded subscriber count. ', h('a', { href: '/auth/youtube' }, 'Reconnect YouTube'), ' once to show the exact number.')));

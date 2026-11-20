@@ -97,11 +97,53 @@ async function exactSubscribers(ctx, acc, now) {
     const [gained, lost] = j.rows?.[0] || [];
     if (Number.isFinite(gained) && Number.isFinite(lost)) st._exactSubs = gained - lost;
     st._exactError = null;
+
+    // Daily breakdown (last ~5 weeks): how far behind Analytics is + average daily growth.
+    const day = (d) => d.toISOString().slice(0, 10);
+    const dUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
+    dUrl.search = new URLSearchParams({
+      ids: 'channel==MINE', startDate: day(new Date(now - 35 * 86_400_000)), endDate: day(new Date(now)),
+      metrics: 'subscribersGained,subscribersLost', dimensions: 'day', sort: 'day',
+    });
+    const dr = await tfetch(dUrl, { headers: { Authorization: `Bearer ${token}` } });
+    const dj = await dr.json().catch(() => ({}));
+    const rows = (dr.ok && dj.rows) || [];
+    if (rows.length) {
+      const recent = rows.slice(-28);
+      st._avgDaily = recent.reduce((sum, r) => sum + (r[1] - r[2]), 0) / recent.length;
+      st._dataUntil = Date.parse(`${rows[rows.length - 1][0]}T23:59:59Z`); // last day Analytics has
+    }
   } catch (e) {
     if (st._exactError !== e.message) ctx.logs.push({ level: 'warn', source: 'youtube', message: `Exact subscriber count unavailable: ${e.message}` });
     st._exactError = e.message;
     st._nextExactAt = now + 6 * 3600_000; // don't hammer when the API/scope isn't available
   }
+}
+
+/**
+ * Studio-like live count. Analytics' lifetime total is exact but 2–3 days old, so add the average
+ * daily growth for the missing days. The Data API's rounded value (rounded DOWN to 3 significant
+ * digits) bounds the truth: 27,800 means 27,800 … 27,899 — the estimate is clamped into that range.
+ */
+function liveSubscriberEstimate(st, now) {
+  const floor = st._roundedSubs;
+  const confirmed = st._exactSubs;
+  st.subscribersConfirmed = confirmed ?? null; // exact, as of the last Analytics day
+  if (confirmed == null) {
+    st.subscribers = floor ?? null;
+    st.subscribersMode = 'rounded';
+    st.subscribersExact = false;
+    return;
+  }
+  let est = confirmed;
+  if (Number.isFinite(st._avgDaily) && st._dataUntil) est += st._avgDaily * Math.max(0, (now - st._dataUntil) / 86_400_000);
+  if (floor != null && floor > 0) {
+    const step = 10 ** Math.max(0, String(Math.floor(floor)).length - 3); // 27,800 → 100
+    est = Math.min(Math.max(est, floor), floor + step - 1);
+  }
+  st.subscribers = Math.round(est);
+  st.subscribersMode = 'live';
+  st.subscribersExact = true;
 }
 
 export const youtubeDue = (st, now) => now >= (st._nextSubsAt || 0)
@@ -124,11 +166,7 @@ export async function youtubeStep(ctx, acc) {
         Object.assign(st, { channelName: ch.snippet.title, avatar: ch.snippet.thumbnails?.default?.url || st.avatar });
       }
       await exactSubscribers(ctx, acc, now);
-      // The Data API rounds DOWN to 3 significant digits (27,867 → 27,800). Analytics gives the exact
-      // lifetime count but lags 1–2 days, so never show less than the rounded floor.
-      const exact = st._exactSubs;
-      st.subscribers = exact != null && st._roundedSubs != null ? Math.max(exact, st._roundedSubs) : exact ?? st._roundedSubs ?? null;
-      st.subscribersExact = exact != null;
+      liveSubscriberEstimate(st, now);
     }
     if (!st.live) {
       if (now < (st._nextLiveCheckAt || 0)) return;
