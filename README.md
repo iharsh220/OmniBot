@@ -111,3 +111,24 @@ Netlify Functions can't run forever, keep files, or hold open connections, so:
 | "quota exceeded" | YouTube daily quota is used up; it resets at midnight Pacific |
 
 Check **Logs** in the dashboard for details.
+
+## Deploy on Vercel
+
+This repo is already configured for Vercel: `vercel.json` (rewrites/headers) + `api/index.mjs` (Express via `serverless-http`) and persistent storage via Upstash Redis/Vercel KV (`server/store.js`, `OMNICHAT_STORE=kv`).
+
+1. **Create persistent storage (required).** Vercel's filesystem is ephemeral. In Vercel: Project → Storage → create/connect **Upstash Redis** (or Vercel KV). This provides `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (also works with `KV_REST_API_URL`/`KV_REST_API_TOKEN`). Without it, logins/sessions/widgets will be lost.
+2. **Import the repo in Vercel.** Framework preset: Other. Root directory: project root. No build command needed (static UI served from `public/`).
+3. **Environment variables (Vercel → Settings → Environment Variables):**
+   - `APP_SECRET` — **required**, 64 random hex chars, never change later: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+   - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` — from the storage integration (or `KV_REST_API_URL`/`KV_REST_API_TOKEN`)
+   - `APP_URL` — `https://<your-project>.vercel.app` (or your custom domain)
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Google Cloud OAuth (YouTube Data API v3 enabled)
+   - `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET` — Kick developer app
+   - Optional: `DISCORD_BOT_TOKEN`, `BOT_YOUTUBE_CHANNEL_ID`, `BOT_KICK_CHANNEL_ID`, `EGG_DISCORD_CHANNEL_ID`
+4. **OAuth / webhook URLs (must match your domain exactly):**
+   - Google redirect URI: `https://<domain>/auth/youtube/callback`
+   - Kick redirect URI: `https://<domain>/auth/kick/callback`
+   - Kick webhook URL: `https://<domain>/webhooks/kick` (webhooks enabled, scopes/user+channel read and chat write as needed)
+5. **Deploy.** After env vars are set, redeploy. Open `/login`, connect accounts, copy widget URLs from Studio into OBS/overlay.
+
+Notes: YouTube/Kick work runs on poll requests (serverless), so keep a dashboard/widget open while streaming. If you rotate `APP_SECRET`, previously stored encrypted tokens become unreadable and accounts/bots must reconnect. Netlify deploy files (`netlify.toml`, `netlify/functions/`) can remain in the repo; Vercel uses `vercel.json` + `api/`.
