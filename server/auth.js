@@ -14,12 +14,12 @@ const STATE = () => (isHttps() ? '__Host-oc_oauth' : 'oc_oauth');
 
 export const redirectUri = (p) => `${config.appUrl}/auth/${p}/callback`;
 
-// ── Users ──
+// ââ Users ââ
 const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: {}, widgets: [], sessions: [] });
 export const getUser = (uid) => db.get(`user/${uid}`);
 export const updateUser = (uid, fn) => db.update(`user/${uid}`, fn, null);
 
-// ── Sessions ──
+// ââ Sessions ââ
 export async function createSession(uid) {
   const token = randomToken();
   const hash = sha256(token);
@@ -91,9 +91,9 @@ export async function destroyAllSessions(uid) {
 }
 export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt > Date.now()).length;
 
-// ── OAuth: state + PKCE verifier in an encrypted short-lived cookie (blocks login CSRF) ──
+// ââ OAuth: state + PKCE verifier in an encrypted short-lived cookie (blocks login CSRF) ââ
 /**
- * chatWrite: YouTube → youtube.force-ssl (post in chat); Kick → chat:write.
+ * chatWrite: YouTube â youtube.force-ssl (post in chat); Kick â chat:write.
  * botAccount: connect a separate YouTube account that posts the Egg Bot messages (not a login).
  */
 export function authorize(provider, linkUid, { chatWrite = false, botAccount = false, sharedBot = false } = {}) {
@@ -164,7 +164,7 @@ export async function handleCallback(provider, req) {
   let st = null;
   try { st = JSON.parse(decrypt(parseCookies(req)[STATE()]) || 'null'); } catch { st = null; }
   if (!st || st.provider !== provider || st.exp < Date.now() || !safeEqual(st.state, req.query.state)) {
-    throw new Error('Login expired or invalid — please try again.');
+    throw new Error('Login expired or invalid â please try again.');
   }
   if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
   const code = req.query.code;
@@ -201,7 +201,7 @@ export async function handleCallback(provider, req) {
       await saveSystemKickBot(kickBotRecord(profile));
       await log(uid, 'info', 'eggs', `Shared OmniChat Kick Bot connected: ${profile.channelName}`);
     } else {
-      await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write � reconnect Kick to grant it');
+      await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write  reconnect Kick to grant it');
     }
   }
   return { uid, linked: !!st.linkUid, needsBotScope };
@@ -243,7 +243,7 @@ async function saveAccount(provider, p, linkUid) {
   return uid;
 }
 
-// ── OmniChat Bot (one YouTube bot account used for every streamer) ──
+// ââ OmniChat Bot (one YouTube bot account used for every streamer) ââ
 /** True when this OmniChat user signed in with the OmniChat Bot's own YouTube account. */
 export const isBotAccount = (user) => !!config.botYouTubeChannelId && user?.accounts?.youtube?.channelId === config.botYouTubeChannelId;
 const botRecord = (p) => ({
@@ -269,7 +269,7 @@ export async function getSystemBotToken() {
   try {
     t = await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
   } catch (e) {
-    throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) — admin must reconnect it`);
+    throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) â admin must reconnect it`);
   }
   await db.update('system/ytbot', (b) => {
     if (!b) return undefined;
@@ -281,7 +281,7 @@ export async function getSystemBotToken() {
   return t.access_token;
 }
 
-// â”€â”€ OmniChat Kick Bot (one Kick bot account used for every streamer) â”€â”€
+// Ã¢ââ¬Ã¢ââ¬ OmniChat Kick Bot (one Kick bot account used for every streamer) Ã¢ââ¬Ã¢ââ¬
 const kickBotRecord = (p) => ({
   provider: 'kick', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
   accessToken: encrypt(p.tokens.access_token), refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : null,
@@ -291,7 +291,7 @@ export const getSystemKickBot = () => db.get('system/kickbot');
 export const saveSystemKickBot = (rec) => db.set('system/kickbot', rec);
 export async function getSystemKickBotToken() {
   const bot = await getSystemKickBot();
-  if (!bot) throw new Error('The shared OmniChat Kick bot is not set up � connect the OmniChat Kick account');
+  if (!bot) throw new Error('The shared OmniChat Kick bot is not set up  connect the OmniChat Kick account');
   if (bot.expiresAt && Date.now() < bot.expiresAt - 90_000) return decrypt(bot.accessToken);
   const refresh = decrypt(bot.refreshToken);
   if (!refresh) throw new Error('Shared OmniChat Kick bot needs to be reconnected');
@@ -299,7 +299,7 @@ export async function getSystemKickBotToken() {
   try {
     t = await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
   } catch (e) {
-    throw new Error(`Shared OmniChat Kick bot token refresh failed (${e.message}) � reconnect it`);
+    throw new Error(`Shared OmniChat Kick bot token refresh failed (${e.message})  reconnect it`);
   }
   await db.update('system/kickbot', (b) => {
     if (!b) return undefined;
@@ -346,7 +346,7 @@ export async function ensureDefaultWidgets(uid) {
   await updateUser(uid, (x) => (x ? { ...x, widgets: [...(x.widgets || []), ...ids] } : undefined));
 }
 
-// ── Access tokens (auto refresh + persist) ──
+// ââ Access tokens (auto refresh + persist) ââ
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PROVIDER_NAME = { youtube: 'YouTube', kick: 'Kick' };
 
@@ -355,13 +355,13 @@ const PROVIDER_NAME = { youtube: 'YouTube', kick: 'Kick' };
  *
  * Refreshing is "single-flight" across serverless instances: one request claims a short lock on the
  * account (etag write), refreshes and saves; the others wait and reuse the new token. This matters
- * for Kick, which ROTATES refresh tokens — two parallel refreshes would otherwise burn the token
- * ("The provided authorization grant … is invalid") and force a reconnect.
+ * for Kick, which ROTATES refresh tokens â two parallel refreshes would otherwise burn the token
+ * ("The provided authorization grant â¦ is invalid") and force a reconnect.
  */
 export async function getAccessToken(uid, provider, { bot = false } = {}) {
   const pick = (u) => (bot ? u?.ytBot : u?.accounts?.[provider]);
   const label = bot ? 'YouTube bot' : PROVIDER_NAME[provider] || provider;
-  const reconnectError = (why) => Object.assign(new Error(`${label} login expired${why ? ` (${why})` : ''} — please reconnect ${label}`), { reconnect: true });
+  const reconnectError = (why) => Object.assign(new Error(`${label} login expired${why ? ` (${why})` : ''} â please reconnect ${label}`), { reconnect: true });
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const acc = pick(await getUser(uid));
@@ -370,7 +370,7 @@ export async function getAccessToken(uid, provider, { bot = false } = {}) {
     // Refresh 5 min early; until then the current token is fine.
     if (acc.expiresAt && now < acc.expiresAt - 5 * 60_000) return decrypt(acc.accessToken);
 
-    // Someone else is refreshing → use the current token if it still works, otherwise wait.
+    // Someone else is refreshing â use the current token if it still works, otherwise wait.
     if (acc.refreshingUntil > now) {
       if (acc.expiresAt && now < acc.expiresAt - 30_000) return decrypt(acc.accessToken);
       await sleep(700);
@@ -380,7 +380,7 @@ export async function getAccessToken(uid, provider, { bot = false } = {}) {
     // Claim the refresh.
     let claimed = null;
     await updateUser(uid, (x) => {
-      claimed = null; // update() may re-run this on an etag conflict — only the winning write counts
+      claimed = null; // update() may re-run this on an etag conflict â only the winning write counts
       const a = pick(x);
       if (!a || a.refreshingUntil > Date.now()) return undefined;
       a.refreshingUntil = Date.now() + 20_000;
@@ -399,7 +399,7 @@ export async function getAccessToken(uid, provider, { bot = false } = {}) {
         ? await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' })
         : await postForm('https://id.kick.com/oauth/token', { client_id: config.kick.clientId, client_secret: config.kick.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
     } catch (e) {
-      // Maybe another instance already rotated it before our claim — use its fresh token if so.
+      // Maybe another instance already rotated it before our claim â use its fresh token if so.
       const fresh = pick(await getUser(uid));
       await release();
       if (fresh && fresh.accessToken !== claimed.accessToken && fresh.expiresAt > Date.now() + 60_000) return decrypt(fresh.accessToken);
@@ -428,7 +428,7 @@ export function publicAccount(a) {
   };
 }
 
-// ── Revoke + delete (privacy) ──
+// ââ Revoke + delete (privacy) ââ
 export async function revokeAccount(acc) {
   const token = decrypt(acc.refreshToken) || decrypt(acc.accessToken);
   if (!token) return;
