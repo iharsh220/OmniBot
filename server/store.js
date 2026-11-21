@@ -42,8 +42,8 @@ const netlify = {
 };
 
 // ── Upstash Redis / Vercel KV (REST) ──
-const kvUrl = () => process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const kvToken = () => process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+const kvUrl = () => process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.OMNIBOT_KV_REST_API_URL || process.env.OMNIBOT_UPSTASH_REDIS_REST_URL;
+const kvToken = () => process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.OMNIBOT_KV_REST_API_TOKEN || process.env.OMNIBOT_UPSTASH_REDIS_REST_TOKEN;
 const K = (k) => `omnichat:${k}`;
 const E = (k) => `omnichat:${k}:etag`;
 

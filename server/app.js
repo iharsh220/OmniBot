@@ -1,4 +1,4 @@
-// OmniChat API as an Express app. Used by server/local.js (local dev) and by
+﻿// OmniChat API as an Express app. Used by server/local.js (local dev) and by
 // netlify/functions/api.mjs (Netlify, via serverless-http).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
@@ -35,7 +35,7 @@ const widgetOut = (w) => ({ id: w.id, type: w.type, name: w.name, settings: w.se
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
 const setCookies = (res, cookies) => cookies.filter(Boolean).forEach((c) => res.append('Set-Cookie', c));
 
-// ── OAuth ──────────────────────────────────────────────────────────────
+// â”€â”€ OAuth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (req, res) => {
   const { provider } = req.params;
   if (!providersConfigured()[provider]) return res.redirect(`/login?error=${encodeURIComponent(`${provider} login is not configured on this server`)}`);
@@ -57,7 +57,7 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
   try {
     const { uid, linked, bot, needsBotScope } = await handleCallback(provider, req);
     setCookies(res, [clearStateCookie(), !linked || !user ? await createSession(uid) : null]);
-    // The OmniChat Bot account just signed in → straight on to the chat-post permission (automatic setup).
+    // The OmniChat Bot account just signed in â†’ straight on to the chat-post permission (automatic setup).
     if (needsBotScope) return res.redirect('/auth/youtube?sharedbot=1');
     res.redirect(bot ? '/#eggs' : linked ? '/#connections' : '/');
   } catch (e) {
@@ -81,7 +81,7 @@ app.post('/auth/logout-all', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ── Kick webhooks (signed by Kick; raw body needed for the signature) ──
+// â”€â”€ Kick webhooks (signed by Kick; raw body needed for the signature) â”€â”€
 app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '*/*', limit: '1mb' }), ah(async (req, res) => {
   const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : typeof req.body === 'string' ? req.body : '';
   if (!(await verifyKickWebhook(req.headers, raw))) return res.status(401).json({ error: 'Invalid signature' });
@@ -93,7 +93,7 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
     if (out.followersDelta) await updateUser(out.uid, (u) => { const a = u?.accounts?.kick; if (!a || a.kickFollowers == null) return undefined; a.kickFollowers += out.followersDelta; return u; });
     if (out.statePatch) await db.update(`live/${out.uid}`, (L) => { L.kick = { ...(L.kick || {}), ...out.statePatch }; return L; }, { kick: {} });
     if (out.logs.length) await addLogs(out.uid, out.logs);
-    // !egghistory typed in Kick chat → reply as the Kick bot
+    // !egghistory typed in Kick chat â†’ reply as the Kick bot
     const cmd = out.chats.find((m) => /^!egghistory\b/i.test((m.parts || []).map((x) => x.text || '').join('').trim()));
     if (cmd && await kickBotReady() && out.user.accounts?.kick?.channelId) {
       const reply = await kickHistoryReply(out.uid, out.user);
@@ -108,7 +108,7 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
 
 app.use(express.json({ limit: '200kb' }));
 
-// ── Public widget endpoints (OBS / overlay apps — no login) ──
+// â”€â”€ Public widget endpoints (OBS / overlay apps â€” no login) â”€â”€
 const ID = ':id([\\w-]{6,40})';
 app.get(`/api/w/${ID}`, ah(async (req, res) => {
   const w = await db.get(`widget/${req.params.id}`);
@@ -141,15 +141,15 @@ app.get('/api/debug/env', (_req, res) => {
     kick: { clientId: has(config.kick.clientId), clientSecret: has(config.kick.clientSecret) },
     appSecret: has(config.appSecret),
     appUrl: has(config.appUrl),
-    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
+    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.OMNIBOT_KV_REST_API_URL || process.env.OMNIBOT_UPSTASH_REDIS_REST_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.OMNIBOT_KV_REST_API_TOKEN || process.env.OMNIBOT_UPSTASH_REDIS_REST_TOKEN),
   });
 });
 
-// ── Authenticated API ──
+// â”€â”€ Authenticated API â”€â”€
 const authed = ah(async (req, res, next) => {
   const user = await currentUser(req);
   if (!user) {
-    // Shows up in Netlify → Logs → Functions → api, to diagnose unexpected sign-outs.
+    // Shows up in Netlify â†’ Logs â†’ Functions â†’ api, to diagnose unexpected sign-outs.
     console.warn(`[auth] 401 ${req.method} ${req.path}: ${req._authReason} (cookies: ${Object.keys(parseCookies(req)).join(',') || 'none'})`);
     return res.status(401).json({ error: 'Not logged in', reason: req._authReason });
   }
@@ -167,7 +167,7 @@ api.get('/debug/env', (_req, res) => {
     kick: { clientId: has(config.kick.clientId), clientSecret: has(config.kick.clientSecret) },
     appSecret: has(config.appSecret),
     appUrl: has(config.appUrl),
-    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
+    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.OMNIBOT_KV_REST_API_URL || process.env.OMNIBOT_UPSTASH_REDIS_REST_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.OMNIBOT_KV_REST_API_TOKEN || process.env.OMNIBOT_UPSTASH_REDIS_REST_TOKEN),
   });
 });
 api.use(authed);
@@ -300,7 +300,7 @@ api.delete(`/widgets/${ID}`, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ── Egg Bot ──
+// â”€â”€ Egg Bot â”€â”€
 api.get('/eggs', ah(async (req, res) => {
   const [doc, live, sharedBot, kickBot, channelId] = await Promise.all([readEggs(req.user.id), db.get(`live/${req.user.id}`), getSystemBot(), getSystemKickBot(), getEggChannelId()]);
   const yt = live?.youtube || {};
@@ -362,7 +362,7 @@ api.post('/eggs/test', ah(async (req, res) => {
   const [live, feed, sharedBot, kickBot] = await Promise.all([db.get(`live/${req.user.id}`), readFeed(), getSystemBot(), getSystemKickBot()]);
   const yt = live?.youtube || {};
   const es = eggSettings(req.user);
-  const text = feed.items[0] ? formatEgg(feed.items[0]) : 'ðŸ¥š OmniChat Egg Bot is connected!';
+  const text = feed.items[0] ? formatEgg(feed.items[0]) : 'Ã°Å¸Â¥Å¡ OmniChat Egg Bot is connected!';
   const result = {};
   if (es.youtube === false) result.youtube = 'disabled';
   else if (!req.user.accounts?.youtube) result.youtube = 'not connected';
@@ -374,7 +374,7 @@ api.post('/eggs/test', ah(async (req, res) => {
   else if (kickBot?.scope && String(kickBot.scope).split(/\s+/).includes('chat:write')) {
     try { await postKickChat(req.user.accounts.kick.channelId, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; }
   } else result.kick = 'connect the OmniChat Kick bot account (chat:write)';
-  await log(req.user.id, 'info', 'eggs', `Test message → YouTube: ${result.youtube} · Kick: ${result.kick}`);
+  await log(req.user.id, 'info', 'eggs', `Test message â†’ YouTube: ${result.youtube} Â· Kick: ${result.kick}`);
   res.json({ ok: true, text, result });
 }));
 
@@ -390,7 +390,7 @@ api.delete('/logs', ah(async (req, res) => {
 app.use('/api', api);
 app.use(['/api', '/auth', '/webhooks'], (_req, res) => res.status(404).json({ error: 'Not found' }));
 
-// Errors → JSON (no stack traces to clients).
+// Errors â†’ JSON (no stack traces to clients).
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Body too large' });
