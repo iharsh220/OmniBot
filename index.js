@@ -1,1 +1,2 @@
-﻿export { default } from './app.js';
+﻿import 'express';
+export { default } from './app.js';
