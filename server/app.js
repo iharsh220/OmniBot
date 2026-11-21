@@ -134,6 +134,17 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
 
 app.get('/api/providers', (_req, res) => res.json(providersConfigured()));
 
+app.get('/api/debug/env', (_req, res) => {
+  const has = (v) => !!(v && String(v).trim());
+  res.json({
+    youtube: { clientId: has(config.google.clientId), clientSecret: has(config.google.clientSecret) },
+    kick: { clientId: has(config.kick.clientId), clientSecret: has(config.kick.clientSecret) },
+    appSecret: has(config.appSecret),
+    appUrl: has(config.appUrl),
+    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
+  });
+});
+
 // ── Authenticated API ──
 const authed = ah(async (req, res, next) => {
   const user = await currentUser(req);
@@ -149,6 +160,16 @@ const authed = ah(async (req, res, next) => {
 });
 const api = express.Router();
 api.get('/providers', (_req, res) => res.json(providersConfigured())); // public (login page)
+api.get('/debug/env', (_req, res) => {
+  const has = (v) => !!(v && String(v).trim());
+  res.json({
+    youtube: { clientId: has(config.google.clientId), clientSecret: has(config.google.clientSecret) },
+    kick: { clientId: has(config.kick.clientId), clientSecret: has(config.kick.clientSecret) },
+    appSecret: has(config.appSecret),
+    appUrl: has(config.appUrl),
+    kv: has(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL) && has(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
+  });
+});
 api.use(authed);
 api.use((req, res, next) => (req.method === 'GET' ? next() : limit('write', 120, 60_000)(req, res, next)));
 
