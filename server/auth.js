@@ -15,11 +15,31 @@ const STATE = () => (isHttps() ? '__Host-oc_oauth' : 'oc_oauth');
 export const redirectUri = (p) => `${config.appUrl}/auth/${p}/callback`;
 
 // ââ Users ââ
-const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: {}, widgets: [], sessions: [] });
-export const getUser = (uid) => db.get(`user/${uid}`);
-export const updateUser = (uid, fn) => db.update(`user/${uid}`, fn, null);
+const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: { youtube: [], kick: [] }, widgets: [], sessions: [] });
+export function normalizeAccounts(user) {
+  if (!user) return user;
+  const a = user.accounts && typeof user.accounts === 'object' ? user.accounts : {};
+  for (const p of ['youtube', 'kick']) {
+    let list = a[p];
+    if (!list) list = [];
+    else if (!Array.isArray(list)) list = [list];
+    a[p] = list.filter(Boolean).map((acc) => {
+      const out = { ...acc, provider: p };
+      out.providerUserId = out.providerUserId || out.channelId;
+      out.channelId = out.channelId || out.providerUserId;
+      return out;
+    });
+  }
+  user.accounts = a;
+  return user;
+}
+export const listAccounts = (u, p) => ((normalizeAccounts(u) || {}).accounts?.[p] || []);
+export const allAccounts = (u) => [...listAccounts(u, 'youtube'), ...listAccounts(u, 'kick')];
+export const findAccount = (u, p, id) => listAccounts(u, p).find((a) => a.providerUserId === id || a.channelId === id);
+export const getUser = async (uid) => normalizeAccounts(await db.get(`user/${uid}`));
+export const updateUser = (uid, fn) => db.update(`user/${uid}`, (u) => fn(normalizeAccounts(u)), null);
 
-// ââ Sessions ââ
+// ── Sessions ──
 export async function createSession(uid) {
   const token = randomToken();
   const hash = sha256(token);
@@ -172,8 +192,8 @@ export async function handleCallback(provider, req) {
   const profile = provider === 'youtube' ? await exchangeYouTube(code) : await exchangeKick(code, st.verifier);
   if (st.sharedBot) {
     const me = await getUser(st.linkUid);
-    if (!me || !isBotAccount(me) || provider !== 'youtube') throw new Error('Only the OmniChat Bot account can connect the bot.');
-    if (profile.channelId !== config.botYouTubeChannelId) throw new Error(`Please pick the OmniChat Bot Google account (you picked "${profile.channelName}").`);
+    if (!me || provider !== 'youtube') throw new Error('Only the OmniChat Bot account can connect the bot.');
+    if (String(profile.channelId) !== String(config.botYouTubeChannelId || '')) throw new Error(`Please pick the OmniChat Bot Google account (you picked "${profile.channelName}").`);
     await saveSystemBot(botRecord(profile));
     await log(st.linkUid, 'info', 'eggs', `Shared OmniChat Bot set to: ${profile.channelName}`);
     return { uid: st.linkUid, linked: true, bot: true };
@@ -245,7 +265,11 @@ async function saveAccount(provider, p, linkUid) {
 
 // ââ OmniChat Bot (one YouTube bot account used for every streamer) ââ
 /** True when this OmniChat user signed in with the OmniChat Bot's own YouTube account. */
-export const isBotAccount = (user) => !!config.botYouTubeChannelId && user?.accounts?.youtube?.channelId === config.botYouTubeChannelId;
+export const isBotAccount = (user) => {
+  const want = String(config.botYouTubeChannelId || '').trim();
+  if (!want) return false;
+  return listAccounts(user, 'youtube').some((a) => String(a.channelId || a.providerUserId || '') === want);
+};
 const botRecord = (p) => ({
   provider: 'youtube', channelId: p.channelId, channelName: p.channelName, avatar: p.avatar,
   accessToken: encrypt(p.tokens.access_token), refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : null,
