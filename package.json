@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Unified YouTube + Kick live chat & stats overlay for OBS (Express API + plain HTML/CSS/JS, deploys to Netlify)",
   "engines": {
-    "node": "20.x"
+    "node": "26.x"
   },
   "scripts": {
     "dev": "node --watch server/local.js",
