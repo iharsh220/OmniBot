@@ -25,6 +25,8 @@ app.set('trust proxy', true);
 // When running as a Netlify Function the path may arrive prefixed with the function path.
 app.use((req, _res, next) => {
   req.url = req.url.replace(/^\/\.netlify\/functions\/api/, '') || '/';
+  // Vercel catch-all rewrites /auth/* and /webhooks/* into /api/auth/* and /api/webhooks/*.
+  req.url = req.url.replace(/^\/api\/(?=auth(?:\/|$)|webhooks(?:\/|$))/, '/');
   next();
 });
 app.use(['/api', '/auth', '/webhooks'], securityHeaders);
