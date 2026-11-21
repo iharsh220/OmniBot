@@ -1,4 +1,4 @@
-﻿process.env.OMNICHAT_STORE ||= 'kv';
+process.env.OMNICHAT_STORE ||= 'kv';
 
 import app from '../app.js';
 
