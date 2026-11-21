@@ -1,6 +1,5 @@
 ﻿process.env.OMNICHAT_STORE ||= 'kv';
 
-import serverless from 'serverless-http';
 import app from '../server/app.js';
 
 export const config = {
@@ -9,4 +8,6 @@ export const config = {
   },
 };
 
-export default serverless(app);
+export default function handler(req, res) {
+  return app(req, res);
+}
