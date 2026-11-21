@@ -148,6 +148,7 @@ const authed = ah(async (req, res, next) => {
   next();
 });
 const api = express.Router();
+api.get('/providers', (_req, res) => res.json(providersConfigured())); // public (login page)
 api.use(authed);
 api.use((req, res, next) => (req.method === 'GET' ? next() : limit('write', 120, 60_000)(req, res, next)));
 
