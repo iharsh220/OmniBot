@@ -1,6 +1,6 @@
 ﻿process.env.OMNICHAT_STORE ||= 'kv';
 
-import app from '../server/app.js';
+import app from '../app.js';
 
 export const config = {
   api: {
