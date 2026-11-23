@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT) || 3002;
 // Locally, login must come back to localhost (the .env may hold the Netlify URL).
 process.env.APP_URL = process.env.LOCAL_APP_URL || `http://localhost:${PORT}`;
 process.env.DATA_DIR ||= path.join(ROOT, 'data');
+// Local dev always uses data/store.json (never the production Redis, even if its vars are in .env).
+process.env.OMNICHAT_STORE ||= 'local';
 // Local-only secret if none is set (on Netlify APP_SECRET is required).
 if (!process.env.APP_SECRET) {
   const f = path.join(process.env.DATA_DIR, 'secret.key');

@@ -5,6 +5,7 @@ import { config, providersConfigured } from './config.js';
 import { securityHeaders, sameOrigin, limit, ah, parseCookies, reqHost } from './http.js';
 import { randomId } from './crypto.js';
 import * as db from './store.js';
+import { storeMode } from './store.js';
 import {
   authorize, clearStateCookie, handleCallback, currentUser, createSession, destroySession, destroyAllSessions,
   sessionCount, publicAccount, ensureDefaultWidgets, getUser, updateUser, disconnectAccount, deleteUser,
@@ -60,7 +61,10 @@ app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (re
   if (sharedBot && !user) return res.redirect('/login');
   // Allow through to OAuth; handleCallback verifies the picked Google account is the configured bot.
   const chatWrite = provider === 'kick' && (req.query.chat === '1' || String(user?.accounts?.kick?.scope || '').split(/\s+/).includes('chat:write'));
-  const a = authorize(provider, user?.id, { chatWrite, sharedBot, consent: req.query.consent === '1', req });
+  // Google: first YouTube sign-in on this browser → the consent page right away (it gives the refresh token),
+  // so the streamer sees Google only ONCE. Afterwards just the account picker.
+  const firstYouTube = provider === 'youtube' && !(readLastLogin(req)?.used || []).includes('youtube');
+  const a = authorize(provider, user?.id, { chatWrite, sharedBot, consent: req.query.consent === '1' || firstYouTube, req });
   setCookies(res, [a.cookie]);
   res.redirect(a.url);
 }));
@@ -156,6 +160,8 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
 // Public (login page): which providers work + the last login on THIS browser for "Continue as …".
 const providersOut = (req) => ({ ...providersConfigured(), last: readLastLogin(req) });
 app.get('/api/providers', (req, res) => res.json(providersOut(req)));
+// Deploy check: which storage is active (no secrets). On Vercel it must say "kv".
+app.get('/api/health', (_req, res) => { let store; try { store = storeMode(); } catch { store = 'error'; } res.json({ ok: store !== 'missing', store, appUrl: config.appUrl }); });
 // "Not you?" on the login page: forget the remembered login on this browser.
 app.post('/api/providers/forget', (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });

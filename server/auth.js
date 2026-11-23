@@ -124,7 +124,9 @@ export async function destroyAllSessions(uid, req) {
 /** "Continue as <name>" on the login page: provider + display name of the last login on this browser. */
 export function lastLoginCookie(req, user, provider) {
   const acc = user?.accounts?.[provider];
-  const v = { p: provider, n: String(acc?.channelName || user?.name || '').slice(0, 60), a: acc?.avatar || user?.avatar || null };
+  // `u` = platforms already signed in with on this browser (so Google's consent page is shown only the first time).
+  const used = new Set([...(readLastLogin(req)?.used || []), provider]);
+  const v = { p: provider, n: String(acc?.channelName || user?.name || '').slice(0, 60), a: acc?.avatar || user?.avatar || null, u: [...used] };
   return setCookie(req, LAST, encrypt(JSON.stringify(v)), LAST_TTL);
 }
 export function readLastLogin(req) {
@@ -132,7 +134,8 @@ export function readLastLogin(req) {
     const v = JSON.parse(decrypt(readCookie(req, LAST)) || 'null');
     if (!v || !['youtube', 'kick'].includes(v.p)) return null;
     const a = typeof v.a === 'string' && /^https:\/\//.test(v.a) ? v.a : null;
-    return { provider: v.p, name: String(v.n || '').slice(0, 60), avatar: a };
+    const used = (Array.isArray(v.u) ? v.u : [v.p]).filter((x) => ['youtube', 'kick'].includes(x));
+    return { provider: v.p, name: String(v.n || '').slice(0, 60), avatar: a, used };
   } catch { return null; }
 }
 export const clearLastLogin = (req) => clearCookies(req, LAST);

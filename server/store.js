@@ -3,8 +3,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { getStore } from '@netlify/blobs';
 
-const useBlobs = () => process.env.OMNICHAT_STORE === 'blobs';
-const useKv = () => ['kv', 'redis', 'upstash', 'vercel'].includes(process.env.OMNICHAT_STORE);
 
 // ── local JSON file ──
 let mem = null;
@@ -45,6 +43,9 @@ const netlify = {
 const kvUrl = () => process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.OMNIBOT_KV_REST_API_URL || process.env.OMNIBOT_UPSTASH_REDIS_REST_URL;
 const kvToken = () => process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.OMNIBOT_KV_REST_API_TOKEN || process.env.OMNIBOT_UPSTASH_REDIS_REST_TOKEN;
 const K = (k) => `omnichat:${k}`;
+// Upstash read-your-writes: send back the newest sync token so a read right after a write (same instance)
+// never sees an older replica (e.g. a just-created session or user).
+let syncToken = null;
 const E = (k) => `omnichat:${k}:etag`;
 
 async function kvCmd(cmd) {
@@ -53,9 +54,12 @@ async function kvCmd(cmd) {
   if (!url || !token) throw new Error('KV store is not configured (set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)');
   const r = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(syncToken ? { 'upstash-sync-token': syncToken } : {}) },
     body: JSON.stringify(cmd),
+    signal: AbortSignal.timeout(8000),
   });
+  const st = r.headers.get('upstash-sync-token');
+  if (st) syncToken = st;
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) throw new Error(j.error || `KV HTTP ${r.status}`);
   return j.result;
@@ -103,7 +107,26 @@ const redisStore = {
   },
 };
 
-const backend = () => (useKv() ? redisStore : useBlobs() ? netlify : local);
+/**
+ * Which store to use. Upstash/Vercel KV is picked whenever its env vars exist, even if OMNICHAT_STORE
+ * is missing: on Vercel the root Express entry (index.js/app.js) never sets it, and falling back to
+ * the in-memory/local file store there gives every instance its own data → "session not found" /
+ * "User not found" right after login.
+ */
+export function storeMode() {
+  const m = String(process.env.OMNICHAT_STORE || '').toLowerCase();
+  if (m === 'local') return 'local';
+  if (m === 'blobs') return 'blobs';
+  if (['kv', 'redis', 'upstash', 'vercel'].includes(m) || (kvUrl() && kvToken())) return 'kv';
+  if (process.env.NETLIFY) return 'blobs';
+  if (process.env.VERCEL) return 'missing';
+  return 'local';
+}
+const backend = () => {
+  const m = storeMode();
+  if (m === 'missing') throw Object.assign(new Error('Storage is not configured: connect Upstash Redis in Vercel (UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN)'), { status: 500 });
+  return m === 'kv' ? redisStore : m === 'blobs' ? netlify : local;
+};
 
 export const get = (k) => backend().get(k);
 export const set = (k, v) => backend().setJSON(k, v);
