@@ -37,7 +37,7 @@ export function alertType(m) {
 
 // ── Sounds: a different built-in sound per alert kind (WebAudio, no files), or the streamer's own URL ──
 let audioCtx = null;
-function synth(name, volume) {
+export function synth(name, volume) {
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});

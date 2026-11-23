@@ -1,4 +1,4 @@
-﻿// OmniChat API as an Express app. Used by server/local.js (local dev) and by Vercel
+// OmniChat API as an Express app. Used by server/local.js (local dev) and by Vercel
 // (root app.js/index.js and api/*.mjs).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
@@ -261,7 +261,8 @@ api.get('/poll', limit('poll', 240, 60_000), ah(async (req, res) => {
   const ev = await readEvents(req.user.id, num(req.query.c));
   const lc = num(req.query.l);
   const lg = await readLogs(req.user.id, { cursor: lc === undefined ? Number.MAX_SAFE_INTEGER : lc, limit: 50 });
-  res.json({ ...ev, state: publicState(live, req.user), logs: lc === undefined ? [] : lg.rows.reverse(), logCursor: lg.cursor });
+  const donations = (await readDonations(req.user.id)) || [];
+  res.json({ ...ev, state: publicState(live, req.user), logs: lc === undefined ? [] : lg.rows.reverse(), logCursor: lg.cursor, donations });
 }));
 
 api.put('/me/settings', ah(async (req, res) => {

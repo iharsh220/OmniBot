@@ -2,7 +2,7 @@ import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings, ALERT_KINDS, WID
 import { ChatView, StatsView, EggsView, createMessageEl, ICONS } from './render.js';
 import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
-import { AlertsView, GoalView, PollView, DonateView, startAlertDemo, demoPoll, demoGoalState, demoDonate, playAlertSound } from './live-views.js';
+import { AlertsView, GoalView, PollView, DonateView, startAlertDemo, demoPoll, demoGoalState, demoDonate, playAlertSound, synth } from './live-views.js';
 
 // ═════════════════════════════════════════════════════════════════════
 //  Helpers
@@ -1418,7 +1418,12 @@ function showPage(p) {
   if (page === 'logs') renderLogs();
   if (page === 'eggs') renderEggs();
   if (page === 'tools') renderTools();
-  if (page === 'donations') renderDonations();
+  if (page === 'donations') {
+    renderDonations();
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }
   if (page === 'settings') renderSettings();
 }
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));
@@ -1551,17 +1556,13 @@ async function donateCard() {
       h('button', { type: 'button', class: 'btn sm', onclick: () => copyText(r.page) }, ic('copy'), 'Copy'), h('br'), h('span', { class: 'muted tiny' }, 'Put it in your stream description / pinned chat. Add the Donate QR widget in Studio to show the QR on stream.'))) : null,
     h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' }, h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')));
   const pending = r.items.filter((x) => x.status === 'pending');
-  const done = r.items.filter((x) => x.status !== 'pending').slice(0, 20);
-  const row = (x) => h('li', { class: 'tmsg' }, h('span', { class: 'tag ok' }, `₹${x.amount}`),
-    h('div', { class: 'ttxt' }, h('b', {}, x.name), x.message ? h('span', {}, ` — ${x.message}`) : null, h('span', { class: 'muted tiny' }, ` · ${ago(x.ts)}`)),
-    x.status === 'pending' ? [
-      h('button', { type: 'button', class: 'btn sm primary', title: 'Check your UPI app first. Shows the Donation alert on stream.', onclick: async () => { try { await api(`/api/tools/donate/${x.id}/confirm`, { method: 'POST' }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, ic('check'), 'Received'),
-      h('button', { type: 'button', class: 'btn sm ghost', title: 'Not received / spam', onclick: async () => { try { await api(`/api/tools/donate/${x.id}`, { method: 'DELETE' }); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, 'Dismiss')]
-      : h('span', { class: `tag ${x.status === 'received' ? 'ok' : ''}` }, x.status));
+  donationsPendingCountEl = h('span', { class: 'sub' }, `${pending.length} waiting for you`);
+  donationsNotesUl = h('ul', { class: 'tchat' });
+  renderDonationRows(r.items, donationsNotesUl, donationsPendingCountEl);
   const list = h('div', { class: 'card' },
-    h('div', { class: 'card-head' }, ic('heart'), h('h3', {}, 'Donation notes'), h('span', { class: 'sub' }, `${pending.length} waiting for you`)),
+    h('div', { class: 'card-head' }, ic('heart'), h('h3', {}, 'Donation notes'), donationsPendingCountEl),
     h('p', { class: 'muted tiny', style: 'margin-top:0' }, 'Open your UPI app, check the money arrived, then press Received. The alert appears on your Alerts widget.'),
-    pending.length || done.length ? h('ul', { class: 'tchat' }, [...pending, ...done].map(row)) : h('p', { class: 'muted tiny' }, 'No donations yet.'));
+    donationsNotesUl);
   const mName = h('input', { class: 'input', maxlength: 40, placeholder: 'Name' });
   const mAmount = h('input', { class: 'input', type: 'number', min: 1, placeholder: 'Amount ₹' });
   const mMsg = h('input', { class: 'input', maxlength: 200, placeholder: 'Message (optional)' });
@@ -1572,6 +1573,120 @@ async function donateCard() {
       try { await api('/api/tools/donate/manual', { method: 'POST', body: JSON.stringify({ name: mName.value, amount: Number(mAmount.value), message: mMsg.value }) }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); }
     } }, ic('send'), 'Show alert')));
   return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual);
+}
+
+let donationsNotesUl = null;
+let donationsPendingCountEl = null;
+const seenDonationIds = new Set();
+let isInitialDonationsPoll = true;
+
+function renderDonationRows(items, ul, countEl) {
+  const pending = (items || []).filter((x) => x.status === 'pending');
+  const done = (items || []).filter((x) => x.status !== 'pending').slice(0, 20);
+  if (countEl) countEl.textContent = `${pending.length} waiting for you`;
+  const row = (x) => h('li', { class: 'tmsg', id: `don-row-${x.id}` }, h('span', { class: 'tag ok' }, `₹${x.amount}`),
+    h('div', { class: 'ttxt' }, h('b', {}, x.name), x.message ? h('span', {}, ` — ${x.message}`) : null, h('span', { class: 'muted tiny' }, ` · ${ago(x.ts)}`)),
+    x.status === 'pending' ? [
+      h('button', { type: 'button', class: 'btn sm primary', title: 'Check your UPI app first. Shows the Donation alert on stream.', onclick: async () => { try { await api(`/api/tools/donate/${x.id}/confirm`, { method: 'POST' }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, ic('check'), 'Received'),
+      h('button', { type: 'button', class: 'btn sm ghost', title: 'Not received / spam', onclick: async () => { try { await api(`/api/tools/donate/${x.id}`, { method: 'DELETE' }); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, 'Dismiss')]
+      : h('span', { class: `tag ${x.status === 'received' ? 'ok' : ''}` }, x.status));
+  if (!pending.length && !done.length) {
+    ul.replaceChildren(h('p', { class: 'muted tiny', id: 'don-none' }, 'No donations yet.'));
+  } else {
+    ul.replaceChildren(...[...pending, ...done].map(row));
+  }
+}
+
+function showIncomingDonationPopup(item) {
+  try { synth('notify', 85); } catch { /* ignore */ }
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try {
+      const n = new Notification(`New donation: ₹${item.amount} from ${item.name}`, {
+        body: item.message ? `"${item.message}"` : 'Pending approval in OmniChat',
+        icon: '/favicon.svg',
+      });
+      n.onclick = () => { window.focus(); };
+    } catch { /* ignore */ }
+  }
+
+  if ($(`#don-pop-${item.id}`)) return;
+
+  const popup = h('div', { class: 'toast toast-donation', id: `don-pop-${item.id}` },
+    h('div', { class: 'toast-donation-head' },
+      h('div', { class: 'toast-donation-title' },
+        ic('heart'),
+        h('b', {}, `₹${item.amount}`),
+        h('span', {}, item.name)
+      ),
+      h('button', {
+        type: 'button', class: 'btn sm ghost icon', title: 'Close', style: 'padding:2px 6px',
+        onclick: () => { popup.classList.add('out'); setTimeout(() => popup.remove(), 250); }
+      }, '✕')
+    ),
+    item.message ? h('div', { class: 'toast-donation-body' }, `“${item.message}”`) : null,
+    h('div', { class: 'toast-donation-actions' },
+      h('button', {
+        type: 'button', class: 'btn sm ghost',
+        onclick: async () => {
+          try {
+            await api(`/api/tools/donate/${item.id}`, { method: 'DELETE' });
+            popup.classList.add('out'); setTimeout(() => popup.remove(), 250);
+            toast('Donation dismissed');
+            if (page === 'donations') renderDonations();
+          } catch (e) { toast(e.message, 'err'); }
+        }
+      }, 'Dismiss'),
+      h('button', {
+        type: 'button', class: 'btn sm primary',
+        onclick: async () => {
+          try {
+            await api(`/api/tools/donate/${item.id}/confirm`, { method: 'POST' });
+            popup.classList.add('out'); setTimeout(() => popup.remove(), 250);
+            toast('Donation alert sent to stream');
+            if (page === 'donations') renderDonations();
+          } catch (e) { toast(e.message, 'err'); }
+        }
+      }, ic('check'), 'Received (Alert)')
+    )
+  );
+
+  $('#toasts').append(popup);
+  setTimeout(() => {
+    if (popup.parentElement) {
+      popup.classList.add('out');
+      setTimeout(() => popup.remove(), 250);
+    }
+  }, 45_000);
+}
+
+function handleDonationsUpdate(items) {
+  if (!Array.isArray(items)) return;
+  const pending = items.filter((x) => x.status === 'pending');
+  const b = $('#nav-donations');
+  if (b) {
+    b.textContent = pending.length;
+    b.hidden = !pending.length;
+  }
+  if (page === 'donations' && donationsNotesUl && donationsNotesUl.isConnected) {
+    renderDonationRows(items, donationsNotesUl, donationsPendingCountEl);
+  }
+  if (isInitialDonationsPoll) {
+    items.forEach((x) => seenDonationIds.add(x.id));
+    isInitialDonationsPoll = false;
+    return;
+  }
+  for (const it of pending) {
+    if (!seenDonationIds.has(it.id)) {
+      seenDonationIds.add(it.id);
+      showIncomingDonationPopup(it);
+    }
+  }
+  for (const it of items) {
+    if (it.status !== 'pending') {
+      const pop = $(`#don-pop-${it.id}`);
+      if (pop) { pop.classList.add('out'); setTimeout(() => pop.remove(), 250); }
+    }
+  }
 }
 
 async function renderDonations() {
@@ -1589,7 +1704,6 @@ async function updateDonationBadge() {
     b.hidden = !n;
   } catch { /* ignore */ }
 }
-setInterval(() => { if (me) updateDonationBadge(); }, 60_000);
 
 async function summaryCard() {
   const body = h('div', {}, h('span', { class: 'muted tiny' }, 'Loading…'));
@@ -1722,6 +1836,7 @@ async function boot() {
     },
     onDelete: (id) => { liveHistory = liveHistory.filter((m) => m.id !== id); if (feedMode === 'live') chatView.remove(id); },
     onLog: onLiveLog,
+    onDonations: handleDonationsUpdate,
   });
   setFeed('demo');
   updateDonationBadge();

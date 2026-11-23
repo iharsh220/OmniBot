@@ -414,6 +414,57 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 .toast.ok svg { color: var(--ok); } .toast.err svg { color: var(--bad); }
 .toast.out { opacity: 0; transform: translateY(8px); transition: .25s; }
 @keyframes toastin { from { opacity: 0; transform: translateY(10px); } }
+
+/* Realtime donation popup */
+.toast.toast-donation {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 320px;
+  max-width: 420px;
+  padding: 14px 16px;
+  border: 1px solid var(--ok);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 20px rgba(34, 197, 94, .25);
+  border-radius: 14px;
+}
+.toast-donation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.toast-donation-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.toast-donation-title b {
+  color: var(--ok);
+  font-size: 15px;
+  font-weight: 800;
+}
+.toast-donation-title svg.i {
+  color: #ec4899;
+  width: 18px;
+  height: 18px;
+}
+.toast-donation-body {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.35;
+  font-style: italic;
+  padding-left: 26px;
+  word-break: break-word;
+}
+.toast-donation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
 .scrim { display: none; }
 
 /* ── Login ────────────────────────────────────────────────────────────── */
