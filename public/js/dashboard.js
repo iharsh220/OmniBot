@@ -126,7 +126,7 @@ const TABS = {
   alerts: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Look & timing', 'layout'], ['content', 'Which alerts', 'zap']],
   goal: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Goal', 'chart']],
   poll: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Poll', 'message']],
-  donate: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Donate box', 'heart']],
+  donate: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'heart']],
 };
 // Studio type picker / lists: emoji + icon + label per widget type
 const TYPE_META = {
@@ -136,8 +136,8 @@ const TYPE_META = {
 const SECTION_INFO = {
   theme: () => ['10 ready-made looks — pick one to start'],
   style: () => ['Colors, border, background, fonts, shape & avatar'],
-  layout: (type) => [{ chat: 'Alignment, width, animation & timing', eggs: 'Board, alert, events · fit to screen', alerts: 'Style, position, animation, time on screen & sound' }[type] || 'Row, column or pill · alignment'],
-  content: (type) => [{ chat: 'Avatar, badges, time, events & emotes', eggs: 'How many eggs, latest card, details & highlights', alerts: 'Super Chats, members, Kick subs & follows, highlights', goal: 'Subscribers or followers · target & title', poll: 'Hide when idle · vote hint', donate: 'Title, UPI ID and page link' }[type] || 'Viewers, subs, total · titles, icons & labels'],
+  layout: (type) => [{ chat: 'Alignment, width, animation & timing', eggs: 'Board, alert, events · fit to screen', alerts: 'Style, position, animation, time on screen & sound', donate: 'Card, stacked or scanner only · size & UPI placement' }[type] || 'Row, column or pill · alignment'],
+  content: (type) => [{ chat: 'Avatar, badges, time, events & emotes', eggs: 'How many eggs, latest card, details & highlights', alerts: 'Super Chats, members, Kick subs & follows, highlights', goal: 'Subscribers or followers · target & title', poll: 'Hide when idle · vote hint', donate: 'Title, subtitle, UPI ID & donation link' }[type] || 'Viewers, subs, total · titles, icons & labels'],
   filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
@@ -320,11 +320,18 @@ const GROUPS = [
     { k: 'goalNumbers', t: 'toggle', label: 'Show numbers' },
     { k: 'goalPercent', t: 'toggle', label: 'Show percent' },
   ] },
+  { tab: 'layout', title: 'Donate layout', types: ['donate'], fields: [
+    { k: 'donateLayout', t: 'seg', label: 'Layout style', options: [['card', 'Card (side-by-side)'], ['stacked', 'Stacked (centered)'], ['qr-only', 'Scanner only']], rebuild: true, hint: 'Scanner only displays just the QR code (and optional UPI beneath) — ideal for clean OBS overlays' },
+    { k: 'donateQrSize', t: 'range', label: 'Scanner size', min: 80, max: 320, step: 10, fmt: (v) => `${v}px` },
+    { k: 'donateUpiPos', t: 'seg', label: 'UPI ID position', options: [['side', 'Beside scanner'], ['below-qr', 'Below scanner']], show: (s) => s.donateShowUpi && s.donateLayout !== 'qr-only', hint: 'Show your UPI ID directly underneath the QR code box or beside it' },
+  ] },
   { tab: 'content', title: 'Donate box', types: ['donate'], fields: [
-    { k: 'donateTitle', t: 'text', label: 'Title', placeholder: 'Support the stream 💜' },
+    { k: 'donateShowTitle', t: 'toggle', label: 'Show title', rebuild: true },
+    { k: 'donateTitle', t: 'text', label: 'Title text', placeholder: 'Support the stream 💜', show: (s) => s.donateShowTitle !== false },
+    { k: 'donateShowSub', t: 'toggle', label: 'Show instructions / subtitle', hint: '“Scan with your phone camera to donate”' },
+    { k: 'donateShowUpi', t: 'toggle', label: 'Show UPI ID', rebuild: true },
+    { k: 'donateShowLink', t: 'toggle', label: 'Show donation page link' },
     { k: 'donateQr', t: 'seg', label: 'QR code opens', options: [['page', 'My donation page'], ['upi', 'UPI app directly']], hint: 'Donation page = viewer adds name + message and you get a note to confirm. UPI direct = no note, add it by hand on the Donations page' },
-    { k: 'donateShowUpi', t: 'toggle', label: 'Show my UPI ID' },
-    { k: 'donateShowLink', t: 'toggle', label: 'Show my donation page link' },
     { t: 'action', icon: 'heart', label: 'Set up UPI & see donations', run: () => { location.hash = 'donations'; } },
   ] },
   { tab: 'content', title: 'Poll', types: ['poll'], fields: [
@@ -696,6 +703,7 @@ alertsView.preview = true;
 const goalView = new GoalView($('#goal-preview'), settings);
 const pollView = new PollView($('#poll-preview'), settings);
 const donateView = new DonateView($('#donate-preview'), settings);
+donateView.preview = true;
 async function loadDonatePreview() { try { const r = await api('/api/tools/donate'); donateView.setData(r.settings.enabled && r.settings.upi ? { id: me.user.id, name: r.settings.payee || me.user.name, upi: r.settings.upi, link: `upi://pay?pa=${encodeURIComponent(r.settings.upi)}&pn=${encodeURIComponent(r.settings.payee || me.user.name || 'Streamer')}&cu=INR` } : demoDonate()); } catch { donateView.setData(demoDonate()); } }
 pollView.preview = true;
 let alertDemo = null;
@@ -765,8 +773,8 @@ function refreshPreview() {
   $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
     : current?.type === 'eggs' ? eggsSize(settings)
       : current?.type === 'alerts' ? (settings.eggsAlertStyle === 'big' ? '900 × 500' : '900 × 260')
-        : current?.type === 'goal' ? '700 × 120' : current?.type === 'poll' ? '520 × 360' : current?.type === 'donate' ? '520 × 200' : '400 × 700';
-  for (const [t, size] of [['alerts', '900 × 260'], ['goal', '700 × 120'], ['poll', '520 × 360']]) $(`#${t}-frame`).dataset.size = `${t === 'alerts' && settings.eggsAlertStyle === 'big' ? '900 × 500' : size} · OBS size`;
+        : current?.type === 'goal' ? '700 × 120' : current?.type === 'poll' ? '520 × 360' : current?.type === 'donate' ? (settings.donateLayout === 'qr-only' ? '240 × 260' : settings.donateLayout === 'stacked' ? '320 × 380' : '520 × 200') : '400 × 700';
+  for (const [t, size] of [['alerts', '900 × 260'], ['goal', '700 × 120'], ['poll', '520 × 360'], ['donate', settings.donateLayout === 'qr-only' ? '240 × 260' : settings.donateLayout === 'stacked' ? '320 × 380' : '520 × 200']]) $(`#${t}-frame`).dataset.size = `${t === 'alerts' && settings.eggsAlertStyle === 'big' ? '900 × 500' : size} · OBS size`;
   $('#eggs-frame').dataset.size = `${eggsSize(settings)} · OBS size`;
   $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list' && settings.eggsOrient !== 'vertical');
 }
@@ -842,6 +850,7 @@ function renderOverview() {
       h('p', {}, 'Your overlays are ready. Open Studio to tweak the look, or copy a URL straight into OBS.')),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', type: 'button', onclick: showWhatsNewModal }, ic('sparkles'), "What's new"),
+      h('button', { class: 'btn creator-hero-btn', type: 'button', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕'),
       h('a', { class: 'btn', href: '#connections' }, ic('plug'), 'Connections'),
       h('a', { class: 'btn primary', href: '#studio' }, ic('palette'), 'Open Studio')));
 
@@ -877,10 +886,32 @@ function renderOverview() {
   const activity = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h3', {}, 'Recent activity'), h('div', { class: 'actions' }, h('a', { class: 'btn sm ghost', href: '#logs' }, 'View all'))), feed);
 
+  const creatorCard = h('div', { class: 'card creator-overview-card', style: 'margin-top:16px' },
+    h('div', { class: 'creator-card-main' },
+      h('div', { class: 'creator-badge-wolf' }, '🐺'),
+      h('div', { style: 'flex:1;min-width:0' },
+        h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
+          h('h3', { style: 'margin:0;font-size:15px' }, 'Created by SmartWolf'),
+          h('span', { class: 'tag ok' }, '100% Free Tool · 0% Cut')
+        ),
+        h('p', { class: 'muted tiny', style: 'margin:3px 0 0' },
+          'OmniChat is completely free for all streamers with no ads or subscriptions. If it helps your stream, you can support me with a cup of chai or coffee! ☕')
+      ),
+      h('button', { class: 'btn primary sm', type: 'button', onclick: showCreatorModal }, ic('coffee'), 'Buy Coffee / Tea')
+    ),
+    h('div', { class: 'creator-links-row' },
+      h('a', { class: 'btn sm ghost', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' }, ic('youtube'), 'YouTube @smartwolf_yt'),
+      h('a', { class: 'btn sm ghost', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' }, ic('instagram'), 'Instagram @smartwolf_yt'),
+      h('a', { class: 'btn sm ghost', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' }, ICONS.kick, 'Kick @smartwolfyt'),
+      h('a', { class: 'btn sm ghost', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' }, ic('discord'), 'Discord Wolf Pack')
+    )
+  );
+
   root.replaceChildren(hero,
     h('div', { class: 'section-title' }, h('h2', {}, 'Live now')),
     h('div', { class: 'grid kpis' }, ov.yt.card, ov.kk.card, ov.tot.card, ov.msgs.card),
-    h('div', { class: 'grid two', style: 'margin-top:16px' }, wl, h('div', { class: 'grid', style: 'align-content:start' }, checklist, activity)));
+    h('div', { class: 'grid two', style: 'margin-top:16px' }, wl, h('div', { class: 'grid', style: 'align-content:start' }, checklist, activity)),
+    creatorCard);
   updateOverview();
 
   api('/api/logs?limit=6').then((rows) => {
@@ -1408,11 +1439,25 @@ setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#pa
 // ═════════════════════════════════════════════════════════════════════
 const WHATS_NEW_ITEMS = [
   {
+    badge: 'COMMUNITY',
+    color: 'warn',
+    icon: 'coffee',
+    title: 'Support the Creator (SmartWolf 🐺)',
+    desc: 'OmniChat is 100% free with no ads, no subscriptions, and 0% platform cuts. If OmniChat empowers your stream, you can support the developer (SmartWolf) with a cup of chai or coffee via UPI!'
+  },
+  {
+    badge: 'NEW',
+    color: 'ok',
+    icon: 'heart',
+    title: 'Customizable Donate Overlay & Animated Loader',
+    desc: 'OBS Donate overlay now features a smooth animated loading spinner so widgets never flash or delay on stream. Fully customizable layout: Scanner-only mode (hide text & links), stacked vertical cards, position UPI ID directly underneath the QR scanner or beside it, and customize QR scanner size.'
+  },
+  {
     badge: 'NEW',
     color: 'ok',
     icon: 'heart',
     title: 'Real-time UPI Donations (0% Platform Fee)',
-    desc: 'Direct-to-streamer UPI payments via QR code & mobile deep-link (GPay, PhonePe, Paytm, BHIM) with zero platform fees. Features real-time approval popup with audio chime, live in-place notes list without refreshing, and an on-screen Donate QR widget for OBS.'
+    desc: 'Direct-to-streamer UPI payments via QR code & mobile deep-link (GPay, PhonePe, Paytm, BHIM) with zero platform fees. Features real-time approval popup with audio chime, live in-place notes list without refreshing, and "Send another donation" support.'
   },
   {
     badge: 'NEW',
@@ -1497,6 +1542,142 @@ function showWhatsNewModal() {
   document.body.append(bg);
 }
 
+let creatorModalOpen = false;
+function showCreatorModal() {
+  if (creatorModalOpen) return;
+  creatorModalOpen = true;
+  let bg;
+  const close = () => {
+    creatorModalOpen = false;
+    if (bg) bg.remove();
+    document.removeEventListener('keydown', onKey);
+    if (location.hash === '#creator') history.replaceState(null, '', '#' + (prevPage || 'overview'));
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+
+  let currentAmount = 50;
+  const upiId = 'smartwolfyt@upi';
+  const payeeName = 'SmartWolf';
+
+  const makeUpiUrl = (amt) =>
+    `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${amt}&cu=INR&tn=${encodeURIComponent('OmniChat Chai Coffee')}`;
+
+  const qrImg = h('img', {
+    class: 'creator-qr-img',
+    src: `/api/qr.svg?d=${encodeURIComponent(makeUpiUrl(currentAmount))}`,
+    alt: 'UPI QR code to support SmartWolf'
+  });
+
+  const payLink = h('a', {
+    class: 'btn primary creator-pay-btn',
+    href: makeUpiUrl(currentAmount),
+    target: '_blank',
+    rel: 'noopener'
+  }, ic('rupee'), `Pay ₹${currentAmount} via UPI App`);
+
+  const amounts = [
+    { amt: 20, label: '₹20', desc: 'Cup of Chai ☕' },
+    { amt: 50, label: '₹50', desc: 'Hot Coffee ☕' },
+    { amt: 100, label: '₹100', desc: 'Coffee & Snacks 🍩' },
+    { amt: 250, label: '₹250', desc: 'Wolf Pack 🐺' },
+  ];
+
+  const chipsContainer = h('div', { class: 'creator-amt-chips' });
+  const renderChips = () => {
+    chipsContainer.replaceChildren(
+      ...amounts.map((opt) => {
+        const isSel = currentAmount === opt.amt;
+        return h('button', {
+          type: 'button',
+          class: `creator-amt-chip${isSel ? ' active' : ''}`,
+          onclick: () => {
+            currentAmount = opt.amt;
+            const url = makeUpiUrl(currentAmount);
+            qrImg.src = `/api/qr.svg?d=${encodeURIComponent(url)}`;
+            payLink.href = url;
+            payLink.textContent = '';
+            payLink.append(ic('rupee'), `Pay ₹${currentAmount} via UPI App`);
+            renderChips();
+          }
+        }, h('b', {}, opt.label), h('span', { class: 'tiny' }, opt.desc));
+      })
+    );
+  };
+  renderChips();
+
+  const copyBtn = h('button', {
+    type: 'button',
+    class: 'btn sm',
+    onclick: () => copyText(upiId)
+  }, ic('copy'), 'Copy UPI ID');
+
+  bg = h('div', { class: 'modal-bg', role: 'dialog', 'aria-modal': 'true', onclick: (e) => { if (e.target === bg) close(); } },
+    h('div', { class: 'modal creator-modal' },
+      h('div', { class: 'creator-modal-head' },
+        h('div', { class: 'creator-head-left' },
+          h('div', { class: 'creator-wolf-avatar' }, '🐺'),
+          h('div', {},
+            h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
+              h('h3', { style: 'margin:0;font-size:18px' }, 'Created by SmartWolf'),
+              h('span', { class: 'tag ok' }, 'Owner & Developer')
+            ),
+            h('p', { class: 'muted tiny', style: 'margin:3px 0 0' },
+              'IT pro by day, Roblox streamer by passion 🐺 · Blox Fruits & Steal An Egg')
+          )
+        ),
+        h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Close', onclick: close }, '✕')
+      ),
+      h('div', { class: 'creator-free-callout' },
+        h('span', { style: 'font-size:24px' }, '🎉'),
+        h('div', {},
+          h('b', {}, 'OmniChat is 100% Free Forever'),
+          h('p', { class: 'muted tiny', style: 'margin:2px 0 0' },
+            'Zero platform fee, no cuts from your donations, and no paid subscriptions. If this tool helps your live stream, consider supporting me with a cup of tea or coffee! ☕')
+        )
+      ),
+      h('div', { class: 'creator-socials-grid' },
+        h('a', { class: 'creator-social-btn yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
+          ic('youtube'), h('div', {}, h('b', {}, 'YouTube Channel'), h('span', { class: 'tiny' }, '@smartwolf_yt · ~27K subs'))),
+        h('a', { class: 'creator-social-btn insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
+          ic('instagram'), h('div', {}, h('b', {}, 'Instagram'), h('span', { class: 'tiny' }, '@smartwolf_yt'))),
+        h('a', { class: 'creator-social-btn kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
+          ICONS.kick, h('div', {}, h('b', {}, 'Kick Stream'), h('span', { class: 'tiny' }, 'kick.com/smartwolfyt'))),
+        h('a', { class: 'creator-social-btn disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
+          ic('discord'), h('div', {}, h('b', {}, 'Discord Community'), h('span', { class: 'tiny' }, 'discord.gg/smartwolfyt')))
+      ),
+      h('div', { class: 'creator-coffee-box' },
+        h('div', { class: 'coffee-box-head' },
+          h('span', { style: 'font-size:20px' }, '☕'),
+          h('div', {},
+            h('b', {}, 'Buy SmartWolf a Cup of Tea / Coffee'),
+            h('p', { class: 'muted tiny', style: 'margin:1px 0 0' }, 'Scan QR code with GPay, PhonePe, Paytm or any UPI app')
+          )
+        ),
+        chipsContainer,
+        h('div', { class: 'creator-qr-row' },
+          h('div', { class: 'creator-qr-wrap' }, qrImg),
+          h('div', { class: 'creator-qr-meta' },
+            h('div', { class: 'creator-upi-id-box' },
+              h('span', { class: 'tiny muted' }, 'UPI ID:'),
+              h('code', { class: 'creator-upi-code' }, upiId),
+              copyBtn
+            ),
+            payLink,
+            h('p', { class: 'muted tiny', style: 'margin:8px 0 0;line-height:1.4' },
+              'Direct-to-bank UPI · 100% goes to hosting servers & continuous updates for the streaming community. Dil se shukriya! 💜')
+          )
+        )
+      ),
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:16px' },
+        h('button', { type: 'button', class: 'btn primary', onclick: close }, 'Awesome, Got it!')
+      )
+    )
+  );
+
+  document.body.append(bg);
+}
+
 // ═════════════════════════════════════════════════════════════════════
 //  Routing / shell
 // ═════════════════════════════════════════════════════════════════════
@@ -1504,6 +1685,10 @@ let prevPage = 'overview';
 function showPage(p) {
   if (p === 'whats-new') {
     showWhatsNewModal();
+    return;
+  }
+  if (p === 'creator') {
+    showCreatorModal();
     return;
   }
   prevPage = PAGES[p] ? p : 'overview';
@@ -1673,7 +1858,17 @@ async function donateCard() {
     h('div', { class: 'tmanual' }, mName, mAmount, mMsg, h('button', { type: 'button', class: 'btn primary', onclick: async () => {
       try { await api('/api/tools/donate/manual', { method: 'POST', body: JSON.stringify({ name: mName.value, amount: Number(mAmount.value), message: mMsg.value }) }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); }
     } }, ic('send'), 'Show alert')));
-  return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual);
+  const creatorBanner = h('div', { class: 'card creator-sub-banner', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap' },
+    h('div', { style: 'display:flex;align-items:center;gap:10px' },
+      h('span', { style: 'font-size:24px' }, '☕'),
+      h('div', {},
+        h('b', {}, 'OmniChat takes 0% cut from your donations · 100% Free Tool'),
+        h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created with ❤️ by SmartWolf. If you love this project, consider buying me a cup of tea or coffee!')
+      )
+    ),
+    h('button', { type: 'button', class: 'btn sm', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕')
+  );
+  return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual, creatorBanner);
 }
 
 let donationsNotesUl = null;
@@ -1942,6 +2137,8 @@ async function boot() {
   setFeed('demo');
   updateDonationBadge();
   $('#open-whats-new')?.addEventListener('click', showWhatsNewModal);
+  $('#open-creator')?.addEventListener('click', showCreatorModal);
+  $('#nav-creator')?.addEventListener('click', (e) => { e.preventDefault(); showCreatorModal(); });
   showPage(location.hash.slice(1) || 'overview');
   autoSyncKick();
   setInterval(() => autoSyncKick({ force: true }), 10 * 60_000); // keep the follower total fresh while the dashboard is open

@@ -328,29 +328,110 @@ export class PollView {
 
 // ── Donate (UPI QR on stream) ──
 export class DonateView {
-  constructor(root, settings) { this.root = root; this.d = null; this.setSettings(settings); }
-  setSettings(s) { this.s = s; applyRoot(this.root, s, 'donate'); this.render(); }
-  setData(d) { this.d = d; this.render(); }
+  constructor(root, settings) {
+    this.root = root;
+    this.d = null;
+    this.loading = true;
+    this.preview = false;
+    this.setSettings(settings);
+  }
+  setSettings(s) {
+    this.s = s;
+    applyRoot(this.root, s, 'donate');
+    this.render();
+  }
+  setData(d) {
+    this.loading = false;
+    this.d = d;
+    this.render();
+  }
   render() {
+    const s = this.s;
+    const layout = s.donateLayout || 'card';
+    const upiPos = s.donateUpiPos || 'side';
+    const qrSize = s.donateQrSize || 150;
+
+    // Loading state: smooth animated spinner / skeleton while data is fetching
+    if (this.loading && !this.d && !this.preview) {
+      const card = el('div', `oc-donate oc-donate-loading layout-${layout}`);
+      const qrWrap = el('div', 'oc-dqr-wrap');
+      qrWrap.style.width = `${qrSize}px`;
+      qrWrap.style.height = `${qrSize}px`;
+      const spinBox = el('div', 'oc-donate-spinner');
+      const ring = el('span', 'oc-spin-ring');
+      const icon = el('span', 'oc-scan-icon', '⚡');
+      spinBox.append(ring, icon);
+      qrWrap.append(spinBox);
+
+      if (layout === 'qr-only') {
+        card.append(qrWrap);
+      } else {
+        const text = el('div', 'oc-dtext oc-dtext-skeleton');
+        text.append(
+          el('div', 'oc-skel-bar skel-title'),
+          el('div', 'oc-skel-bar skel-sub'),
+          el('div', 'oc-skel-bar skel-upi')
+        );
+        card.append(qrWrap, text);
+      }
+      this.root.replaceChildren(card);
+      return;
+    }
+
     const d = this.d;
-    const card = el('div', 'oc-donate');
+    const card = el('div', `oc-donate layout-${layout}`);
     if (!d) {
       card.append(el('div', 'oc-dtext', el('b', '', 'Donations are off')));
       card.querySelector('.oc-dtext').append(el('span', '', 'Turn them on in Live tools → Donations'));
       this.root.replaceChildren(card);
       return;
     }
+
+    const qrWrap = el('div', 'oc-dqr-wrap');
     const qr = document.createElement('img');
     qr.className = 'oc-dqr';
     qr.alt = 'UPI QR';
+    qr.style.width = `${qrSize}px`;
+    qr.style.height = `${qrSize}px`;
+
     const page = d.id ? `${location.origin}/d/${d.id}` : null;
-    const usePage = this.s.donateQr !== 'upi' && page;
+    const usePage = s.donateQr !== 'upi' && page;
     qr.src = `/api/qr.svg?d=${encodeURIComponent(usePage ? page : d.link)}`;
+    qrWrap.append(qr);
+
+    // If UPI position is 'below-qr' or in qr-only mode (when showUpi is true), show under QR code
+    const showUpiBelow = s.donateShowUpi && (upiPos === 'below-qr' || layout === 'qr-only');
+    if (showUpiBelow && d.upi) {
+      qrWrap.append(el('span', 'oc-dupi oc-dupi-below', d.upi));
+    }
+
+    if (layout === 'qr-only') {
+      card.append(qrWrap);
+      this.root.replaceChildren(card);
+      return;
+    }
+
     const text = el('div', 'oc-dtext');
-    text.append(el('b', 'oc-dtitle', this.s.donateTitle || 'Support the stream'), el('span', 'oc-dsub', usePage ? 'Scan with your phone camera to donate' : 'Scan with any UPI app'));
-    if (this.s.donateShowUpi) text.append(el('span', 'oc-dupi', d.upi));
-    if (this.s.donateShowLink && d.id) text.append(el('span', 'oc-dlink', `${location.host}/d/${d.id}`));
-    card.append(qr, text);
+    if (s.donateShowTitle !== false) {
+      text.append(el('b', 'oc-dtitle', s.donateTitle || 'Support the stream'));
+    }
+    if (s.donateShowSub !== false) {
+      text.append(el('span', 'oc-dsub', usePage ? 'Scan with your phone camera to donate' : 'Scan with any UPI app'));
+    }
+    // If UPI position is 'side' (default), show it in the text block
+    if (s.donateShowUpi && upiPos !== 'below-qr' && d.upi) {
+      text.append(el('span', 'oc-dupi', d.upi));
+    }
+    if (s.donateShowLink && d.id) {
+      text.append(el('span', 'oc-dlink', `${location.host}/d/${d.id}`));
+    }
+
+    if (text.children.length > 0) {
+      card.append(qrWrap, text);
+    } else {
+      card.append(qrWrap);
+    }
+
     this.root.replaceChildren(card);
   }
 }

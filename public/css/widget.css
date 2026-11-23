@@ -604,11 +604,132 @@
 
 /* ═════════ Donate widget (UPI QR) ═════════ */
 .ow-donate { padding: 10px; }
-.oc-donate { display: flex; align-items: center; gap: 1em; background: var(--msg-bg); color: var(--text); border-radius: var(--radius); padding: calc(var(--pad) * 1.1); border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.oc-donate {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  background: var(--msg-bg);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: calc(var(--pad) * 1.1);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: all .2s ease;
+  max-width: fit-content;
+}
 .has-shadow .oc-donate { box-shadow: 0 8px 24px rgba(0,0,0,.3); }
-.oc-dqr { width: 7.5em; height: 7.5em; background: #fff; border-radius: calc(var(--radius) * .6); padding: .35em; flex: 0 0 auto; }
-.oc-dtext { display: flex; flex-direction: column; gap: .2em; min-width: 0; }
+
+/* QR wrapper & image */
+.oc-dqr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .45em;
+  flex: 0 0 auto;
+}
+.oc-dqr {
+  width: var(--dqr-size, 150px);
+  height: var(--dqr-size, 150px);
+  background: #fff;
+  border-radius: calc(var(--radius) * .6);
+  padding: .35em;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: block;
+}
+
+/* Text details */
+.oc-dtext { display: flex; flex-direction: column; gap: .25em; min-width: 0; }
 .oc-dtitle { font-size: 1.25em; font-weight: var(--name-w, 800); line-height: 1.15; }
 .oc-dsub { opacity: .75; font-size: .9em; }
 .oc-dupi { font-weight: 800; color: var(--accent); overflow-wrap: anywhere; }
+.oc-dupi.oc-dupi-below {
+  font-size: .85em;
+  text-align: center;
+  max-width: 100%;
+  word-break: break-all;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
 .oc-dlink { font-size: .8em; opacity: .65; overflow-wrap: anywhere; }
+
+/* Layout variants */
+.oc-donate.layout-stacked {
+  flex-direction: column;
+  text-align: center;
+  align-items: center;
+  gap: .85em;
+}
+.oc-donate.layout-stacked .oc-dtext {
+  align-items: center;
+}
+
+.oc-donate.layout-qr-only {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--pad) * .9);
+}
+
+/* Animated Loader & Skeletons */
+.oc-donate-loading {
+  position: relative;
+  overflow: hidden;
+}
+.oc-donate-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: color-mix(in srgb, var(--msg-bg-solid, #0d0d14) 75%, #fff);
+  border-radius: calc(var(--radius) * .6);
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+.oc-spin-ring {
+  width: 2.4em;
+  height: 2.4em;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: oc-spin .9s cubic-bezier(.55, .15, .45, .85) infinite;
+  position: absolute;
+}
+.oc-scan-icon {
+  font-size: 1.25em;
+  opacity: .8;
+  animation: oc-pulse 1.8s ease-in-out infinite;
+}
+@keyframes oc-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes oc-pulse {
+  0%, 100% { transform: scale(0.9); opacity: .5; }
+  50% { transform: scale(1.1); opacity: .95; }
+}
+
+.oc-dtext-skeleton {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .55em;
+  min-width: 140px;
+}
+.oc-skel-bar {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--text) 8%, transparent) 25%, color-mix(in srgb, var(--text) 20%, transparent) 50%, color-mix(in srgb, var(--text) 8%, transparent) 75%);
+  background-size: 200% 100%;
+  animation: oc-skel-shimmer 1.5s infinite;
+}
+.oc-skel-bar.skel-title { width: 75%; height: 18px; border-radius: 8px; }
+.oc-skel-bar.skel-sub { width: 95%; height: 12px; }
+.oc-skel-bar.skel-upi { width: 55%; height: 14px; background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+@keyframes oc-skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
