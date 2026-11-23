@@ -24,7 +24,8 @@ export const DEFAULTS = {
   showBadges: true,
   showPlatform: true,
   showTime: false,
-  animation: 'slide', // slide | fade | pop | none
+  animation: 'slide', // see ENUMS.animation (15 entry animations)
+  animSpeed: 'normal', // fast | normal | slow
   direction: 'bottom', // bottom = newest at bottom, top = newest at top
   hideAfter: 0, // seconds, 0 = never
   maxMessages: 30,
@@ -140,7 +141,8 @@ const ENUMS = {
   theme: THEMES.map((t) => t.id),
   font: Object.keys(FONTS),
   nameColor: ['user', 'platform', 'accent', 'custom'],
-  animation: ['slide', 'fade', 'pop', 'none'],
+  animation: ['slide', 'slide-right', 'rise', 'drop', 'fade', 'pop', 'zoom', 'bounce', 'elastic', 'flip', 'swing', 'blur', 'wipe', 'glitch', 'none'],
+  animSpeed: ['fast', 'normal', 'slow'],
   direction: ['bottom', 'top'],
   statsLayout: ['row', 'column', 'pill'],
   avatarShape: ['circle', 'rounded', 'square'],
@@ -222,7 +224,7 @@ export function loadFont(name) {
 export function applyRoot(el, s, kind) {
   loadFont(s.font);
   el.className = [
-    'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `dir-${s.direction}`,
+    'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `speed-${s.animSpeed}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
     `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');

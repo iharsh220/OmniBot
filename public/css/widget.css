@@ -15,14 +15,76 @@
 .ow-chat { height: 100%; padding: 12px; }
 .chat-list { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
 .dir-top .chat-list { flex-direction: column-reverse; }
-.msg-wrap { padding: calc(var(--gap) / 2) 0; max-height: 600px; animation: var(--enter) .4s cubic-bezier(.2,.9,.25,1.05) both; }
+/* Entry animations: each .anim-* sets the keyframes (--enter), its own length factor (--k) and easing (--ease).
+   .speed-* scales everything; --sx mirrors side slides when messages are right-aligned. */
+.ow-root { --enter: ow-slide; --base: .45s; --k: 1; --ease: cubic-bezier(.2,.9,.25,1.05); --sx: -1; }
+.ow-root.align-right { --sx: 1; }
+.speed-fast { --base: .28s; } .speed-normal { --base: .45s; } .speed-slow { --base: .8s; }
+.msg-wrap { --dur: calc(var(--base) * var(--k)); padding: calc(var(--gap) / 2) 0; max-height: 600px; transform-origin: left center; animation: var(--enter) var(--dur) var(--ease) both; }
+.align-right .msg-wrap { transform-origin: right center; }
 .msg-wrap.no-anim { animation: none; }
-.msg-wrap.hides { animation: var(--enter) .4s cubic-bezier(.2,.9,.25,1.05) both, ow-leave .7s ease var(--hide) forwards; }
+.msg-wrap.hides { animation: var(--enter) var(--dur) var(--ease) both, ow-leave .7s ease var(--hide) forwards; }
 .msg-wrap.no-anim.hides { animation: ow-leave .7s ease var(--hide) forwards; }
-.anim-slide { --enter: ow-slide; } .anim-fade { --enter: ow-fade; } .anim-pop { --enter: ow-pop; } .anim-none { --enter: none; }
-@keyframes ow-slide { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+.anim-slide { --enter: ow-slide; }
+.anim-slide-right { --enter: ow-slide-other; }
+.anim-rise { --enter: ow-rise; --ease: cubic-bezier(.16,1,.3,1); }
+.anim-drop { --enter: ow-drop; --ease: cubic-bezier(.16,1,.3,1); }
+.anim-fade { --enter: ow-fade; --ease: ease-out; }
+.anim-pop { --enter: ow-pop; }
+.anim-zoom { --enter: ow-zoom; --ease: cubic-bezier(.16,1,.3,1); }
+.anim-bounce { --enter: ow-bounce; --k: 1.8; --ease: linear; }
+.anim-elastic { --enter: ow-elastic; --k: 2; --ease: linear; }
+.anim-flip { --enter: ow-flip; --k: 1.5; --ease: cubic-bezier(.2,.9,.3,1.2); }
+.anim-swing { --enter: ow-swing; --k: 1.8; --ease: ease-out; }
+.anim-blur { --enter: ow-blur; --k: 1.3; --ease: ease-out; }
+.anim-wipe { --enter: ow-wipe; --k: 1.4; --ease: cubic-bezier(.65,0,.35,1); }
+.anim-glitch { --enter: ow-glitch; --k: 1.3; --ease: steps(1, end); }
+.anim-none { --enter: none; }
+@keyframes ow-slide { from { opacity: 0; transform: translateX(calc(var(--sx) * 40px)); } to { opacity: 1; transform: none; } }
+@keyframes ow-slide-other { from { opacity: 0; transform: translateX(calc(var(--sx) * -40px)); } to { opacity: 1; transform: none; } }
+@keyframes ow-rise { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@keyframes ow-drop { from { opacity: 0; transform: translateY(-26px); } to { opacity: 1; transform: none; } }
 @keyframes ow-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes ow-pop { 0% { opacity: 0; transform: scale(.6); } 70% { transform: scale(1.04); } 100% { opacity: 1; transform: none; } }
+@keyframes ow-zoom { from { opacity: 0; transform: scale(1.35); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes ow-bounce {
+  0% { opacity: 0; transform: translateY(-34px); animation-timing-function: cubic-bezier(.55,0,1,.45); }
+  45% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0,.55,.45,1); }
+  65% { transform: translateY(-10px); animation-timing-function: cubic-bezier(.55,0,1,.45); }
+  82% { transform: none; animation-timing-function: cubic-bezier(0,.55,.45,1); }
+  91% { transform: translateY(-3px); animation-timing-function: cubic-bezier(.55,0,1,.45); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes ow-elastic {
+  0% { opacity: 0; transform: scale(.3, .3); }
+  30% { opacity: 1; transform: scale(1.18, .86); }
+  45% { transform: scale(.9, 1.08); }
+  60% { transform: scale(1.05, .96); }
+  75% { transform: scale(.98, 1.02); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes ow-flip { from { opacity: 0; transform: perspective(700px) rotateX(-85deg); } to { opacity: 1; transform: perspective(700px) rotateX(0); } }
+@keyframes ow-swing {
+  0% { opacity: 0; transform: rotate(calc(var(--sx) * 14deg)) translateY(-8px); }
+  40% { opacity: 1; transform: rotate(calc(var(--sx) * -6deg)); }
+  65% { transform: rotate(calc(var(--sx) * 3deg)); }
+  85% { transform: rotate(calc(var(--sx) * -1deg)); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes ow-blur { from { opacity: 0; filter: blur(12px); transform: scale(.97); } to { opacity: 1; filter: none; transform: none; } }
+@keyframes ow-wipe { from { opacity: .2; clip-path: inset(0 100% 0 0); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+.align-right.anim-wipe .msg-wrap { animation-name: ow-wipe-r; }
+.align-right.anim-wipe .msg-wrap.hides { animation-name: ow-wipe-r, ow-leave; }
+@keyframes ow-wipe-r { from { opacity: .2; clip-path: inset(0 0 0 100%); } to { opacity: 1; clip-path: inset(0 0 0 0); } }
+@keyframes ow-glitch {
+  0% { opacity: 0; transform: translateX(-6px); filter: hue-rotate(90deg); clip-path: inset(30% 0 40% 0); }
+  15% { opacity: 1; transform: translateX(5px); clip-path: inset(0 0 60% 0); }
+  30% { transform: translateX(-3px); filter: hue-rotate(-60deg); clip-path: inset(55% 0 0 0); }
+  45% { transform: translateX(2px) skewX(-6deg); filter: none; clip-path: inset(10% 0 20% 0); }
+  60% { transform: translateX(-1px); clip-path: inset(0 0 0 0); }
+  75% { transform: translateX(1px); }
+  100% { opacity: 1; transform: none; filter: none; clip-path: inset(0 0 0 0); }
+}
 @keyframes ow-leave { 0% { opacity: 1; } 55% { opacity: 0; max-height: 600px; padding: calc(var(--gap)/2) 0; } 100% { opacity: 0; max-height: 0; padding: 0; } }
 
 /* ── Message base ── */

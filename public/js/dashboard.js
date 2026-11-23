@@ -167,7 +167,12 @@ const GROUPS = [
     { k: 'avatarSize', t: 'range', label: 'Size', min: 60, max: 200, unit: '%' },
   ] },
   { tab: 'layout', title: 'Motion', types: ['chat'], fields: [
-    { k: 'animation', t: 'seg', label: 'Animation', options: [['slide', 'Slide'], ['fade', 'Fade'], ['pop', 'Pop'], ['none', 'None']] },
+    { k: 'animation', t: 'select', label: 'Animation', options: [
+      ['slide', 'Slide in (from the side)'], ['slide-right', 'Slide in (other side)'], ['rise', 'Rise up'], ['drop', 'Drop down'],
+      ['fade', 'Fade'], ['pop', 'Pop'], ['zoom', 'Zoom in'], ['bounce', 'Bounce'], ['elastic', 'Elastic'], ['flip', '3D flip'],
+      ['swing', 'Swing'], ['blur', 'Blur in'], ['wipe', 'Wipe reveal'], ['glitch', 'Glitch'], ['none', 'None'],
+    ] },
+    { k: 'animSpeed', t: 'seg', label: 'Speed', options: [['fast', 'Fast'], ['normal', 'Normal'], ['slow', 'Slow']] },
     { k: 'direction', t: 'seg', label: 'New messages', options: [['bottom', 'Bottom'], ['top', 'Top']] },
   ] },
   { tab: 'layout', title: 'Arrangement', types: ['chat'], fields: [
