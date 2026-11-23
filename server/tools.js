@@ -26,7 +26,7 @@ export async function clearHighlight(uid) {
 }
 
 // ── Alert numbers: "#3 this stream" per kind (Super Chats, members, subs, follows …) ──
-const COUNT_KIND = { superchat: 'superchat', sticker: 'superchat', member: 'member', milestone: 'member', gift: 'gift', sub: 'sub', follow: 'follow', greeting: 'greeting' };
+const COUNT_KIND = { donation: 'donation', superchat: 'superchat', sticker: 'superchat', member: 'member', milestone: 'member', gift: 'gift', sub: 'sub', follow: 'follow', greeting: 'greeting' };
 /** Adds `n` (number of that kind this stream) to alert messages. Counts reset after 4 h without alerts. */
 export async function numberAlerts(uid, chats) {
   const list = (chats || []).filter((m) => COUNT_KIND[m.alert]);
@@ -57,6 +57,7 @@ const TEST = {
   follow: { kind: 'follow', platform: 'kick', eventText: 'Followed!' },
   greeting: { kind: 'greeting', eventText: '👋 said hi' },
   highlight: { kind: 'highlight', text: 'This is how a highlighted chat message looks' },
+  donation: { kind: 'donation', platform: 'upi', amount: '₹251', text: 'Test donation — thanks for the stream!' },
 };
 export async function testAlert(uid, type) {
   const t = TEST[type];
@@ -227,6 +228,7 @@ export async function summary(uid, hours, session) {
     members: by('member').length + by('milestone').length, giftedMembers: by('gift').filter((x) => x.platform === 'youtube').length,
     kickSubs: by('sub').length, kickGifts: by('gift').filter((x) => x.platform === 'kick').length, follows: by('follow').length,
     greetings: by('greeting').length,
+    donations: by('donation').length,
     peak: session || null,
   };
 }

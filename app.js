@@ -20,6 +20,7 @@ app.set('trust proxy', true);
 app.use(api);
 app.get(['/', '/index.html'], (_req, res) => { setPageHeaders(res, DASH_CSP); res.sendFile(path.join(PUBLIC, 'index.html')); });
 app.get('/login', (_req, res) => { setPageHeaders(res, DASH_CSP); res.sendFile(path.join(PUBLIC, 'login.html')); });
+app.get('/d/:uid', (_req, res) => { setPageHeaders(res, DASH_CSP); res.sendFile(path.join(PUBLIC, 'donate.html')); });
 app.get(['/w/:id', '/demo', '/widget.html'], (_req, res) => { setPageHeaders(res, WIDGET_CSP, 'SAMEORIGIN'); res.sendFile(path.join(PUBLIC, 'widget.html')); });
 app.use(express.static(PUBLIC, { extensions: ['html'], index: false }));
 app.use((_req, res) => res.status(404).send('Not found'));

@@ -19,6 +19,9 @@ import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickBotReady } from './kick.js';
 import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCookie, readLastLogin, clearLastLogin } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
+import { saveMedia, readMedia, deleteMedia, MAX_BYTES } from './media.js';
+import QRCode from 'qrcode';
+import { donateSettings, validateDonate, publicDonate, submitDonation, readDonations, confirmDonation, dismissDonation } from './donate.js';
 import { numberAlerts, testAlert, highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
 
 const app = express();
@@ -32,7 +35,7 @@ app.use((req, _res, next) => {
 });
 app.use(['/api', '/auth', '/webhooks'], securityHeaders);
 
-const WIDGET_TYPES = ['chat', 'stats', 'eggs', 'alerts', 'goal', 'poll'];
+const WIDGET_TYPES = ['chat', 'stats', 'eggs', 'alerts', 'goal', 'poll', 'donate'];
 const cleanName = (v) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 60);
 const widgetOut = (w) => ({ id: w.id, type: w.type, name: w.name, settings: w.settings || {}, updatedAt: w.updatedAt });
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
@@ -163,6 +166,11 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
     return res.json(out);
   }
   const live = await tick(user);
+  if (w.type === 'donate') {
+    const out = { donate: publicDonate(user), v: w.updatedAt };
+    if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
+    return res.json(out);
+  }
   if (w.type === 'poll') {
     const out = { poll: publicPoll(await readPoll(user.id)), v: w.updatedAt };
     if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
@@ -178,6 +186,36 @@ const providersOut = (req) => ({ ...providersConfigured(), last: readLastLogin(r
 app.get('/api/providers', (req, res) => res.json(providersOut(req)));
 // Deploy check: which storage is active (no secrets). On Vercel it must say "kv".
 app.get('/api/health', (_req, res) => { let store; try { store = storeMode(); } catch { store = 'error'; } res.json({ ok: store !== 'missing', store, appUrl: config.appUrl }); });
+// ── Donations (public): page data, "I've paid" note, QR code for upi:// links only ──
+const UID = ':uid([\\w-]{6,40})';
+app.get(`/api/donate/${UID}`, limit('poll', 240, 60_000), ah(async (req, res) => {
+  const u = await getUser(req.params.uid);
+  const d = u && publicDonate(u);
+  if (!d) return res.status(404).json({ error: 'Donations are not set up for this streamer' });
+  res.json(d);
+}));
+app.post(`/api/donate/${UID}`, limit('donate', 6, 60_000), ah(async (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
+  const u = await getUser(req.params.uid);
+  if (!u || !publicDonate(u)) return res.status(404).json({ error: 'Donations are not set up for this streamer' });
+  await submitDonation(u.id, req.body || {});
+  res.json({ ok: true });
+}));
+app.get('/api/qr.svg', limit('qr', 120, 60_000), ah(async (req, res) => {
+  const d = String(req.query.d || '');
+  if (!/^upi:\/\/pay\?[\w%.@&=+-]{5,500}$/.test(d)) return res.status(400).json({ error: 'Only UPI payment links' });
+  const svg = await QRCode.toString(d, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
+  res.set({ 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+  res.send(svg);
+}));
+
+// Uploaded alert pictures / sounds (public: OBS loads them). Type was sniffed from the bytes at upload.
+app.get('/api/media/:id([\\w-]{8,40})', limit('media', 600, 60_000), ah(async (req, res) => {
+  const m = await readMedia(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Not found' });
+  res.set({ 'Content-Type': m.type, 'Content-Length': m.buf.length, 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' });
+  res.end(m.buf);
+}));
 // "Not you?" on the login page: forget the remembered login on this browser.
 app.post('/api/providers/forget', (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
@@ -422,6 +460,28 @@ api.post('/tools/highlight', ah(async (req, res) => {
   const msg = await highlightMessage(req.user.id, id);
   res.json({ ok: true, id: msg.id });
 }));
+api.post('/media', express.raw({ type: () => true, limit: MAX_BYTES + 1024 }), ah(async (req, res) => {
+  const want = req.query.kind === 'audio' ? 'audio' : req.query.kind === 'image' ? 'image' : null;
+  const out = await saveMedia(req.user.id, req.body, want);
+  await log(req.user.id, 'info', 'system', `Uploaded ${out.type} (${Math.round(out.size / 1024)} KB)`);
+  res.json(out);
+}));
+api.delete('/media/:id([\\w-]{8,40})', ah(async (req, res) => res.json({ ok: await deleteMedia(req.user.id, req.params.id) })));
+api.get('/tools/donate', ah(async (req, res) => {
+  res.json({ settings: donateSettings(req.user), items: await readDonations(req.user.id), page: `${config.appUrl}/d/${req.user.id}` });
+}));
+api.put('/tools/donate', ah(async (req, res) => {
+  const next = validateDonate(req.body || {}, donateSettings(req.user));
+  await updateUser(req.user.id, (u) => ({ ...u, donate: next }));
+  await log(req.user.id, 'info', 'system', `Donations ${next.enabled ? 'ON' : 'OFF'}${next.upi ? ` (UPI ${next.upi})` : ''}`);
+  res.json({ ok: true, settings: next });
+}));
+api.post('/tools/donate/:id([\\w-]{6,20})/confirm', ah(async (req, res) => {
+  const d = await confirmDonation(req.user.id, req.user, req.params.id);
+  await log(req.user.id, 'info', 'system', `Donation received: ₹${d.amount} from ${d.name}`);
+  res.json({ ok: true });
+}));
+api.delete('/tools/donate/:id([\\w-]{6,20})', ah(async (req, res) => { await dismissDonation(req.user.id, req.params.id); res.json({ ok: true }); }));
 api.post('/tools/test-alert', ah(async (req, res) => { await testAlert(req.user.id, String(req.body?.type || '')); res.json({ ok: true }); }));
 api.delete('/tools/highlight', ah(async (req, res) => { await clearHighlight(req.user.id); res.json({ ok: true }); }));
 api.post('/tools/poll', ah(async (req, res) => {

@@ -530,7 +530,12 @@ export async function deleteUser(uid) {
     ...Object.values(u.accounts || {}).map((a) => `link/${a.provider}/${a.providerUserId}`),
     ...(u.sessions || []).map((s) => `session/${s.hash}`),
     ...(u.widgets || []).map((id) => `widget/${id}`),
-    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `user/${uid}`,
+    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `poll/${uid}`, `cmds/${uid}`, `alertcount/${uid}`, `donations/${uid}`, `user/${uid}`,
   ];
+  // uploaded alert pictures / sounds (meta + chunks)
+  for (const id of u.media || []) {
+    const meta = await db.get(`media/${id}`);
+    keys.push(`media/${id}`, ...Array.from({ length: meta?.chunks || 0 }, (_, i) => `media/${id}/${i}`));
+  }
   await Promise.all(keys.map((k) => db.del(k)));
 }

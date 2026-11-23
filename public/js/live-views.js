@@ -1,7 +1,7 @@
 // Alerts, Goal and Poll overlays. All user text goes through textContent (XSS-safe).
 // The alert cards reuse the eggs "Alert" markup/CSS (.egg-alert > .egg-hero), so the 7 alert looks,
 // position, entry animation and exit animation work the same for both.
-import { applyRoot, ALERT_KINDS, httpsUrl } from './settings.js';
+import { applyRoot, ALERT_KINDS, mediaUrl } from './settings.js';
 import { ICONS } from './render.js';
 
 const el = (tag, cls, text) => {
@@ -15,10 +15,10 @@ const fmtN = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
 
 // ── Alerts ──
 // alert type → settings key part (ALERT_KINDS in settings.js) + colour + fallback icon
-const KIND_OF = { superchat: 'Superchat', sticker: 'Superchat', member: 'Member', milestone: 'Member', gift: 'Gift', sub: 'KickSub', follow: 'Follow', greeting: 'Greeting', highlight: 'Highlight' };
-const COLOR = { superchat: '#ffb300', sticker: '#ff7aa8', member: '#2ecc71', milestone: '#2ecc71', gift: '#a855f7', sub: '#53fc18', follow: '#38bdf8', greeting: '#38bdf8', highlight: null };
-const ICON = { superchat: '💰', sticker: '💖', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', follow: '💚', greeting: '👋', highlight: '⭐' };
-const DEFAULT_EVENT = { superchat: 'Super Chat', sticker: 'Super Sticker', member: 'New member!', milestone: 'Member milestone', gift: 'Gift!', sub: 'Subscribed!', follow: 'Followed!', greeting: 'Said hi', highlight: 'Highlight' };
+const KIND_OF = { donation: 'Donation', superchat: 'Superchat', sticker: 'Superchat', member: 'Member', milestone: 'Member', gift: 'Gift', sub: 'KickSub', follow: 'Follow', greeting: 'Greeting', highlight: 'Highlight' };
+const COLOR = { donation: '#22c55e', superchat: '#ffb300', sticker: '#ff7aa8', member: '#2ecc71', milestone: '#2ecc71', gift: '#a855f7', sub: '#53fc18', follow: '#38bdf8', greeting: '#38bdf8', highlight: null };
+const ICON = { donation: '💸', superchat: '💰', sticker: '💖', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', follow: '💚', greeting: '👋', highlight: '⭐' };
+const DEFAULT_EVENT = { donation: 'Donation', superchat: 'Super Chat', sticker: 'Super Sticker', member: 'New member!', milestone: 'Member milestone', gift: 'Gift!', sub: 'Subscribed!', follow: 'Followed!', greeting: 'Said hi', highlight: 'Highlight' };
 const DEFAULT_SOUND = Object.fromEntries(ALERT_KINDS.map(([k, , snd]) => [k, snd]));
 const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd']; const v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
 
@@ -31,6 +31,7 @@ export function alertType(m) {
   if (m.kind === 'sub') return /gift/i.test(m.eventText || '') ? 'gift' : 'sub';
   if (m.kind === 'follow') return 'follow';
   if (m.kind === 'greeting') return 'greeting';
+  if (m.kind === 'donation') return 'donation';
   return null;
 }
 
@@ -65,6 +66,16 @@ function synth(name, volume) {
       sparkle: () => { [2093, 2637, 3136, 2349, 2794, 3520].forEach((f, i) => tone(f, i * 0.06, 0.25, { vol: 0.3 })); },
       bell: () => { tone(1046.5, 0, 1.4, { vol: 0.5 }); tone(2093, 0, 0.9, { vol: 0.15 }); tone(1568, 0.02, 1.1, { vol: 0.12 }); },
       levelup: () => { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, i * 0.07, i === 4 ? 0.5 : 0.1, { type: 'square', vol: 0.25 })); },
+      cash: () => { tone(2637, 0, 0.06, { type: 'square', vol: 0.25 }); tone(3136, 0.07, 0.06, { type: 'square', vol: 0.25 }); tone(1046, 0.16, 0.5, { type: 'triangle', vol: 0.5 }); tone(1568, 0.16, 0.5, { type: 'triangle', vol: 0.3 }); },
+      airhorn: () => { [0, 0.28, 0.5].forEach((t, i) => { tone(466, t, i === 2 ? 0.7 : 0.2, { type: 'sawtooth', vol: 0.3 }); tone(554, t, i === 2 ? 0.7 : 0.2, { type: 'sawtooth', vol: 0.2 }); }); },
+      drumroll: () => { for (let i = 0; i < 14; i++) tone(180 - i * 4, i * 0.045, 0.06, { type: 'triangle', vol: 0.4 }); tone(110, 0.66, 0.5, { to: 50, vol: 0.8 }); tone(1200, 0.66, 0.35, { type: 'square', vol: 0.08 }); },
+      laser: () => { tone(1800, 0, 0.3, { type: 'sawtooth', to: 200, vol: 0.25 }); tone(1400, 0.12, 0.3, { type: 'square', to: 150, vol: 0.15 }); },
+      magic: () => { [784, 988, 1175, 1568, 1976, 2349].forEach((f, i) => tone(f, i * 0.05, 0.5, { vol: 0.25 })); tone(392, 0, 0.9, { type: 'triangle', vol: 0.2 }); },
+      notify: () => { tone(1318.5, 0, 0.12); tone(1760, 0.13, 0.35); },
+      tada: () => { tone(523, 0, 0.12, { type: 'triangle' }); tone(784, 0.12, 0.6, { type: 'triangle' }); tone(1046, 0.12, 0.6, { type: 'triangle', vol: 0.4 }); tone(659, 0.12, 0.6, { type: 'triangle', vol: 0.4 }); },
+      bubble: () => { [0, 0.09, 0.18].forEach((t, i) => tone(300 + i * 150, t, 0.1, { to: 900 + i * 200, vol: 0.4 })); },
+      powerup: () => { for (let i = 0; i < 8; i++) tone(330 * 2 ** (i / 6), i * 0.05, 0.08, { type: 'square', vol: 0.2 }); tone(1318, 0.42, 0.4, { type: 'square', vol: 0.2 }); },
+      heartbeat: () => { [0, 0.18, 0.7, 0.88].forEach((t) => tone(70, t, 0.16, { to: 40, vol: 0.9 })); },
       whoosh: () => {
         const len = Math.floor(ctx.sampleRate * 0.6);
         const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -87,7 +98,7 @@ export function playAlertSound(s, type) {
   const choice = s[`alert${K}Sound`] || 'default';
   if (choice === 'none') return;
   if (choice === 'custom') {
-    const url = httpsUrl(s[`alert${K}SoundUrl`]);
+    const url = mediaUrl(s[`alert${K}SoundUrl`]);
     if (url) {
       try { const a = new Audio(url); a.volume = Math.max(0, Math.min(1, s.alertVolume / 100)); a.play().catch(() => synth(DEFAULT_SOUND[K], s.alertVolume)); } catch { /* ignore */ }
       return;
@@ -108,6 +119,7 @@ export function sampleAlert(type) {
     follow: { ...base, kind: 'follow', platform: 'kick', eventText: 'Followed!', author: { name: 'ByteBandit' } },
     greeting: { ...base, kind: 'greeting', eventText: '👋 said hi', author: { name: 'Neha' } },
     highlight: { ...base, kind: 'highlight', author: { name: 'zara_streams' }, parts: msg('Can you show the Divine egg spot again?') },
+    donation: { ...base, kind: 'donation', platform: 'upi', amount: '₹251', author: { name: 'Ravi' }, parts: msg('Love the egg hunts, keep going! 🥚') },
   }[type];
 }
 
@@ -193,7 +205,7 @@ export class AlertsView {
     const K = KIND_OF[type];
     const card = el('div', `egg-hero oc-alert oc-${type}${m.id === this.fresh ? ' enter' : ''}`);
     card.style.setProperty('--rc', COLOR[type] || 'var(--accent)');
-    const custom = httpsUrl(this.s[`alert${K}Image`]);
+    const custom = mediaUrl(this.s[`alert${K}Image`]);
     const src = custom || safeImg(m.author?.avatar);
     const pic = el('span', 'egg-himg' + (src ? ` has-img ${custom ? 'oc-custom' : 'oc-avatar'}` : ''));
     if (src) {
@@ -205,6 +217,7 @@ export class AlertsView {
     const kicker = el('div', 'egg-hkicker');
     const plat = el('span', 'oc-plat');
     plat.innerHTML = m.platform === 'kick' ? ICONS.kick : m.platform === 'youtube' ? ICONS.youtube : '';
+    if (m.platform === 'upi') plat.textContent = '₹';
     kicker.append(plat, el('span', '', this.label(m, type, K)));
     if (this.s.alertCount && m.n && type !== 'highlight') kicker.append(el('span', 'oc-count', `#${m.n} this stream`));
     if (m.test) kicker.append(el('span', 'oc-count', 'TEST'));
@@ -313,6 +326,34 @@ export class PollView {
   }
 }
 
+// ── Donate (UPI QR on stream) ──
+export class DonateView {
+  constructor(root, settings) { this.root = root; this.d = null; this.setSettings(settings); }
+  setSettings(s) { this.s = s; applyRoot(this.root, s, 'donate'); this.render(); }
+  setData(d) { this.d = d; this.render(); }
+  render() {
+    const d = this.d;
+    const card = el('div', 'oc-donate');
+    if (!d) {
+      card.append(el('div', 'oc-dtext', el('b', '', 'Donations are off')));
+      card.querySelector('.oc-dtext').append(el('span', '', 'Turn them on in Live tools → Donations'));
+      this.root.replaceChildren(card);
+      return;
+    }
+    const qr = document.createElement('img');
+    qr.className = 'oc-dqr';
+    qr.alt = 'UPI QR';
+    qr.src = `/api/qr.svg?d=${encodeURIComponent(d.link)}`;
+    const text = el('div', 'oc-dtext');
+    text.append(el('b', 'oc-dtitle', this.s.donateTitle || 'Support the stream'), el('span', 'oc-dsub', 'Scan with any UPI app'));
+    if (this.s.donateShowUpi) text.append(el('span', 'oc-dupi', d.upi));
+    if (this.s.donateShowLink && d.id) text.append(el('span', 'oc-dlink', `${location.host}/d/${d.id}`));
+    card.append(qr, text);
+    this.root.replaceChildren(card);
+  }
+}
+export const demoDonate = () => ({ id: 'demo123', name: 'SmartWolf', upi: 'yourname@upi', link: 'upi://pay?pa=yourname%40upi&pn=SmartWolf&cu=INR', amounts: [50, 100], min: 10 });
+
 // ── Demos (Studio preview / /demo?type=…) ──
 const DEMO_ALERTS = [
   { alert: 'superchat', kind: 'superchat', amount: '₹500.00', author: 'PixelPanda', text: 'Bhai op stream! Keep it up ❤️' },
@@ -322,6 +363,7 @@ const DEMO_ALERTS = [
   { alert: 'gift', kind: 'member', author: 'CaptainChai', eventText: 'Gifted 5 memberships', text: '' },
   { alert: 'milestone', kind: 'member', author: 'Lofi Lover', eventText: 'Member for 12 months', text: 'One year already!' },
   { alert: 'highlight', kind: 'highlight', author: 'zara_streams', text: 'Can you show the Divine egg spot again?' },
+  { alert: 'donation', kind: 'donation', platform: 'upi', amount: '₹251', author: 'Ravi', text: 'Love the egg hunts!' },
 ];
 let demoN = 0;
 export function startAlertDemo(onAlert, everyMs = 4500) {

@@ -23,6 +23,7 @@
     <a class="nav-item" data-page="overview" href="#overview"><span data-icon="home"></span>Overview<span class="dot-live" id="nav-live" hidden></span></a>
     <a class="nav-item" data-page="studio" href="#studio"><span data-icon="palette"></span>Studio<span class="count" id="nav-widgets">0</span></a>
     <a class="nav-item" data-page="tools" href="#tools"><span data-icon="zap"></span>Live tools</a>
+    <a class="nav-item" data-page="donations" href="#donations"><span data-icon="heart"></span>Donations<span class="count" id="nav-donations" hidden>0</span></a>
     <a class="nav-item" data-page="connections" href="#connections"><span data-icon="plug"></span>Connections</a>
     <a class="nav-item" data-page="eggs" href="#eggs"><span data-icon="egg"></span>Egg Bot</a>
     <a class="nav-item" data-page="logs" href="#logs"><span data-icon="logs"></span>Logs</a>
@@ -60,7 +61,7 @@
         <div class="config">
           <div class="config-head">
             <div class="wpick">
-              <select class="select" id="widget-select" aria-label="Widget"></select>
+              <div class="wsel" id="widget-select"></div>
               <button class="btn primary icon" id="new-widget" title="New widget" aria-label="New widget"><span data-icon="plus"></span></button>
             </div>
             <div class="wname">
@@ -102,6 +103,7 @@
             <div class="frame alerts-frame" id="alerts-frame" data-size="900 × 260 · OBS size" hidden><div id="alerts-preview"></div></div>
             <div class="frame goal-frame" id="goal-frame" data-size="700 × 120 · OBS size" hidden><div id="goal-preview"></div></div>
             <div class="frame poll-frame" id="poll-frame" data-size="520 × 360 · OBS size" hidden><div id="poll-preview"></div></div>
+            <div class="frame donate-frame" id="donate-frame" data-size="520 × 200 · OBS size" hidden><div id="donate-preview"></div></div>
           </div>
           <div class="testbar" id="alert-tests" hidden></div>
         </div>
@@ -109,6 +111,7 @@
     </section>
 
     <section class="page" id="page-tools" hidden></section>
+    <section class="page" id="page-donations" hidden></section>
     <section class="page" id="page-connections" hidden></section>
     <section class="page" id="page-eggs" hidden></section>
     <section class="page" id="page-logs" hidden></section>

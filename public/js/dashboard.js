@@ -1,8 +1,8 @@
-import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings, ALERT_KINDS, WIDGET_PRESETS } from './settings.js';
+import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings, ALERT_KINDS, WIDGET_PRESETS, mediaUrl } from './settings.js';
 import { ChatView, StatsView, EggsView, createMessageEl, ICONS } from './render.js';
 import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
-import { AlertsView, GoalView, PollView, startAlertDemo, demoPoll, demoGoalState } from './live-views.js';
+import { AlertsView, GoalView, PollView, DonateView, startAlertDemo, demoPoll, demoGoalState, demoDonate, playAlertSound } from './live-views.js';
 
 // ═════════════════════════════════════════════════════════════════════
 //  Helpers
@@ -109,6 +109,7 @@ const PAGES = {
   overview: ['Overview', 'Your stream at a glance'],
   studio: ['Studio', 'Design your overlays — every change is saved and goes live instantly'],
   tools: ['Live tools', 'Highlight chat on stream, run polls, bot commands & timers, stream summary'],
+  donations: ['Donations', 'Your UPI donation page, QR code and donation notes'],
   connections: ['Connections', 'Link the platforms you stream on'],
   eggs: ['Egg Bot', 'Post Steal an Egg spawns from your Discord into YouTube & Kick chat'],
   logs: ['Logs', 'What OmniChat is doing, and your chat history'],
@@ -125,17 +126,18 @@ const TABS = {
   alerts: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Look & timing', 'layout'], ['content', 'Which alerts', 'zap']],
   goal: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Goal', 'chart']],
   poll: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Poll', 'message']],
+  donate: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Donate box', 'heart']],
 };
 // Studio type picker / lists: emoji + icon + label per widget type
 const TYPE_META = {
-  chat: ['💬', 'message', 'Chat'], stats: ['📊', 'chart', 'Stats'], eggs: ['🥚', 'egg', 'Eggs'],
-  alerts: ['🔔', 'zap', 'Alerts'], goal: ['🎯', 'chart', 'Goal'], poll: ['🗳️', 'message', 'Poll'],
+  chat: ['', 'message', 'Chat'], stats: ['', 'chart', 'Stats'], eggs: ['', 'egg', 'Eggs'],
+  alerts: ['', 'bell', 'Alerts'], goal: ['', 'target', 'Goal'], poll: ['', 'vote', 'Poll'], donate: ['', 'qr', 'Donate QR'],
 };
 const SECTION_INFO = {
   theme: () => ['10 ready-made looks — pick one to start'],
   style: () => ['Colors, border, background, fonts, shape & avatar'],
   layout: (type) => [{ chat: 'Alignment, width, animation & timing', eggs: 'Board, alert, events · fit to screen', alerts: 'Style, position, animation, time on screen & sound' }[type] || 'Row, column or pill · alignment'],
-  content: (type) => [{ chat: 'Avatar, badges, time, events & emotes', eggs: 'How many eggs, latest card, details & highlights', alerts: 'Super Chats, members, Kick subs & follows, highlights', goal: 'Subscribers or followers · target & title', poll: 'Hide when idle · vote hint' }[type] || 'Viewers, subs, total · titles, icons & labels'],
+  content: (type) => [{ chat: 'Avatar, badges, time, events & emotes', eggs: 'How many eggs, latest card, details & highlights', alerts: 'Super Chats, members, Kick subs & follows, highlights', goal: 'Subscribers or followers · target & title', poll: 'Hide when idle · vote hint', donate: 'Title, UPI ID and page link' }[type] || 'Viewers, subs, total · titles, icons & labels'],
   filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
@@ -147,25 +149,35 @@ const ANIM_OPTIONS = [
 const isAlert = (s) => current?.type === 'alerts' || s.eggsLayout === 'alert';
 // Alerts widget: one section per alert kind (on/off, text, sound, own sound URL, own picture, test)
 const KIND_INFO = {
-  Superchat: ['superchat', '💰 Super Chats & Stickers', 'YouTube'], Member: ['member', '⭐ New members & milestones', 'YouTube'],
-  Gift: ['gift', '🎁 Gifted memberships / subs', 'YouTube + Kick'], KickSub: ['sub', '💚 Subs & resubs', 'Kick'],
-  Follow: ['follow', '💚 New followers', 'Kick (YouTube does not report new subscribers live)'], Greeting: ['greeting', '👋 “Said hi”', 'YouTube vertical live'],
-  Highlight: ['highlight', '⭐ Highlighted messages', 'Live tools → Live chat → ⭐ Show'],
+  Superchat: ['superchat', 'Super Chats & Stickers', 'YouTube'], Member: ['member', 'New members & milestones', 'YouTube'],
+  Gift: ['gift', 'Gifted memberships / subs', 'YouTube + Kick'], KickSub: ['sub', 'Subs & resubs', 'Kick'],
+  Follow: ['follow', 'New followers', 'Kick (YouTube does not report new subscribers live)'], Greeting: ['greeting', '“Said hi”', 'YouTube vertical live'],
+  Highlight: ['highlight', 'Highlighted messages', 'Live tools → Live chat → Show'],
+  Donation: ['donation', 'Donations (UPI)', 'Shows when you press Received on the Donations page'],
 };
-const SOUND_OPTIONS = [['default', 'Default for this alert'], ['chime', 'Chime'], ['coin', 'Coin'], ['fanfare', 'Fanfare'], ['pop', 'Pop'], ['sparkle', 'Sparkle'],
-  ['bell', 'Bell'], ['levelup', 'Level up'], ['whoosh', 'Whoosh'], ['custom', 'My own sound (URL)'], ['none', 'No sound']];
-const ALERT_KIND_GROUPS = ALERT_KINDS.map(([K, text]) => {
-  const [type, title, hint] = KIND_INFO[K];
-  const on = (s) => s[`alert${K}`] !== false;
-  return { tab: 'content', title, types: ['alerts'], fields: [
-    { k: `alert${K}`, t: 'toggle', label: 'Show this alert', hint },
-    { k: `alert${K}Text`, t: 'text', label: 'Text', placeholder: text, show: on, hint: 'Variables: {name} {amount} {event} {count} {platform}' },
-    { k: `alert${K}Sound`, t: 'select', label: 'Sound', show: on, options: SOUND_OPTIONS },
-    { k: `alert${K}SoundUrl`, t: 'text', label: 'Sound URL (mp3/ogg/wav)', placeholder: 'https://…/my-sound.mp3', show: (s) => on(s) && s[`alert${K}Sound`] === 'custom', hint: 'Any public https link (e.g. Discord / Dropbox direct link)' },
-    { k: `alert${K}Image`, t: 'text', label: 'Own picture / GIF (optional)', placeholder: 'https://…/my-alert.gif', show: on, hint: 'Replaces the viewer’s avatar on this alert' },
-    { t: 'action', label: '▶ Test this alert', show: on, run: () => testAlert(type) },
-  ] };
-});
+const KIND_ICON = { Superchat: 'coin', Member: 'star', Gift: 'gift', KickSub: 'star', Follow: 'userplus', Greeting: 'hand', Highlight: 'star', Donation: 'rupee' };
+const SOUND_OPTIONS = [['default', 'Default for this alert'], ['chime', 'Chime'], ['coin', 'Coin'], ['cash', 'Cash register'], ['fanfare', 'Fanfare'], ['tada', 'Ta-da'],
+  ['pop', 'Pop'], ['bubble', 'Bubbles'], ['sparkle', 'Sparkle'], ['magic', 'Magic'], ['bell', 'Bell'], ['notify', 'Notify'], ['levelup', 'Level up'], ['powerup', 'Power up'],
+  ['airhorn', 'Air horn'], ['drumroll', 'Drum roll'], ['laser', 'Laser'], ['heartbeat', 'Heartbeat'], ['whoosh', 'Whoosh'], ['custom', 'My own sound (upload)'], ['none', 'No sound']];
+// "Which alerts": pick ONE alert type in a dropdown, its settings show below (UI state only, not saved)
+let editKind = 'Superchat';
+const typeOfKind = (K) => KIND_INFO[K][0];
+const ALERT_EDIT_GROUP = { tab: 'content', title: 'Customize an alert', types: ['alerts'], fields: [
+  { t: 'kindpick', label: 'Alert type', hint: 'Pick one, change its settings below, then test it' },
+  ...ALERT_KINDS.flatMap(([K, text]) => {
+    const sel = () => editKind === K;
+    const on = (s) => sel() && s[`alert${K}`] !== false;
+    return [
+      { k: `alert${K}`, t: 'toggle', label: 'Show this alert', hint: KIND_INFO[K][2], show: sel },
+      { k: `alert${K}Text`, t: 'text', label: 'Text on the alert', placeholder: text, show: on, hint: 'Variables: {name} {amount} {event} {count} {platform}' },
+      { k: `alert${K}Sound`, t: 'select', label: 'Sound', show: on, options: SOUND_OPTIONS, rebuild: true },
+      { k: `alert${K}SoundUrl`, t: 'upload', accept: 'audio/*', kind: 'audio', label: 'Your sound file', show: (s) => on(s) && s[`alert${K}Sound`] === 'custom', hint: 'MP3, OGG, WAV or M4A · up to 3 MB · short sounds work best' },
+      { t: 'action', icon: 'volume', label: 'Play sound', show: (s) => on(s) && s[`alert${K}Sound`] !== 'none', run: () => playAlertSound({ ...settings, alertSound: true }, typeOfKind(K)) },
+      { k: `alert${K}Image`, t: 'upload', accept: 'image/png,image/jpeg,image/gif,image/webp', kind: 'image', label: 'Your picture / GIF (optional)', show: on, hint: 'Shown instead of the viewer’s avatar · PNG, JPG, GIF, WebP · up to 3 MB' },
+      { t: 'action', icon: 'play', label: 'Test this alert', show: on, run: () => testAlert(typeOfKind(K)) },
+    ];
+  }),
+] };
 const GROUPS = [
   { tab: 'style', title: 'Colors', fields: [
     { k: 'textColor', t: 'color', label: 'Text' },
@@ -255,7 +267,7 @@ const GROUPS = [
     { k: 'statsLiveBadge', t: 'toggle', label: 'LIVE badge' },
   ] },
   { tab: 'content', title: 'Numbers', types: ['stats'], fields: [
-    { k: 'statsIcons', t: 'toggle', label: 'Icons (👁 👥)' },
+    { k: 'statsIcons', t: 'toggle', label: 'Icons (eye / people)' },
     { k: 'statsLabels', t: 'toggle', label: 'Labels' },
     { k: 'statsViewersText', t: 'text', label: 'Viewers label', placeholder: 'watching', show: (s) => s.statsLabels && s.statsViewers },
     { k: 'statsSubsText', t: 'text', label: 'Subs label', placeholder: 'auto: subscribers / followers', show: (s) => s.statsLabels && s.statsSubs },
@@ -299,7 +311,7 @@ const GROUPS = [
     { k: 'alertMessage', t: 'toggle', label: 'Show the viewer’s message' },
     { k: 'alertCount', t: 'toggle', label: 'Count badge', hint: '“#3 this stream” on Super Chats, members, subs, follows …' },
   ] },
-  ...ALERT_KIND_GROUPS,
+  ALERT_EDIT_GROUP,
   { tab: 'content', title: 'Goal', types: ['goal'], fields: [
     { k: 'goalType', t: 'seg', label: 'Count', options: [['youtube-subs', 'YouTube subs'], ['kick-followers', 'Kick followers'], ['combined', 'Both']] },
     { k: 'goalTarget', t: 'number', label: 'Target', min: 1, max: 100000000 },
@@ -307,6 +319,12 @@ const GROUPS = [
     { k: 'goalStyle', t: 'seg', label: 'Look', options: [['bar', 'Thick bar'], ['slim', 'Slim bar']] },
     { k: 'goalNumbers', t: 'toggle', label: 'Show numbers' },
     { k: 'goalPercent', t: 'toggle', label: 'Show percent' },
+  ] },
+  { tab: 'content', title: 'Donate box', types: ['donate'], fields: [
+    { k: 'donateTitle', t: 'text', label: 'Title', placeholder: 'Support the stream 💜' },
+    { k: 'donateShowUpi', t: 'toggle', label: 'Show my UPI ID' },
+    { k: 'donateShowLink', t: 'toggle', label: 'Show my donation page link' },
+    { t: 'action', icon: 'heart', label: 'Set up UPI & see donations', run: () => { location.hash = 'donations'; } },
   ] },
   { tab: 'content', title: 'Poll', types: ['poll'], fields: [
     { k: 'pollHideIdle', t: 'toggle', label: 'Hide when no poll', hint: 'Appears when you start a poll in Live tools, hides 60 s after it ends' },
@@ -392,12 +410,50 @@ function control(f) {
         if (String(val) === String(v)) o.selected = true;
         return o;
       }));
-      sel.addEventListener('change', () => set(f.k, f.num ? Number(sel.value) : sel.value));
+      sel.addEventListener('change', () => set(f.k, f.num ? Number(sel.value) : sel.value, { rebuild: !!f.rebuild }));
       return sel;
     }
     case 'seg':
       return h('div', { class: 'seg full', role: 'group', 'aria-label': f.label }, f.options.map(([val, label]) =>
         h('button', { type: 'button', class: val === v ? 'on' : '', onclick: () => set(f.k, val, { rebuild: true }) }, label)));
+    case 'kindpick': {
+      const sel = h('select', { class: 'select', 'aria-label': f.label }, ALERT_KINDS.map(([K]) => {
+        const off = settings[`alert${K}`] === false;
+        return h('option', { value: K, selected: K === editKind ? true : undefined }, `${KIND_INFO[K][1]}${off ? '  (off)' : ''}`);
+      }));
+      sel.addEventListener('change', () => { editKind = sel.value; const t = $('#test-kind'); if (t) t.value = typeOfKind(editKind); renderConfig(); });
+      return h('div', { class: 'kindpick' }, h('span', { class: 'kind-ic', html: icon(KIND_ICON[editKind] || 'bell') }), sel);
+    }
+    case 'upload': {
+      const url = mediaUrl(v);
+      const input = h('input', { type: 'file', accept: f.accept, hidden: true });
+      const status = h('span', { class: 'muted tiny' });
+      const preview = !url ? h('span', { class: 'muted tiny' }, 'Nothing uploaded')
+        : f.kind === 'image' ? h('img', { class: 'up-img', src: url, alt: '' })
+          : h('button', { type: 'button', class: 'btn sm', onclick: () => { try { const a = new Audio(url); a.volume = (settings.alertVolume ?? 60) / 100; a.play(); } catch { /* ignore */ } } }, ic('play'), 'Play my sound');
+      const pick = h('button', { type: 'button', class: 'btn sm primary', onclick: () => input.click() }, ic('upload'), url ? 'Replace' : 'Upload');
+      const remove = url ? h('button', { type: 'button', class: 'btn sm ghost', onclick: async () => {
+        const id = (v.match(/\/api\/media\/([\w-]+)$/) || [])[1];
+        set(f.k, '', { rebuild: true });
+        if (id) api(`/api/media/${id}`, { method: 'DELETE' }).catch(() => {});
+      } }, ic('trash'), 'Remove') : null;
+      input.addEventListener('change', async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        if (file.size > 3 * 1024 * 1024) { toast('File is too big (max 3 MB)', 'err'); return; }
+        status.textContent = 'Uploading…';
+        try {
+          const r = await fetch(`/api/media?kind=${f.kind}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || `Upload failed (${r.status})`);
+          const old = (String(v || '').match(/\/api\/media\/([\w-]+)$/) || [])[1];
+          set(f.k, j.url, { rebuild: true });
+          if (old) api(`/api/media/${old}`, { method: 'DELETE' }).catch(() => {});
+          toast('Uploaded');
+        } catch (e) { status.textContent = ''; toast(e.message, 'err'); }
+      });
+      return h('div', { class: 'upload' }, h('div', { class: 'up-prev' }, preview), h('div', { class: 'row' }, pick, remove, status), input);
+    }
     case 'number': {
       const i = h('input', { class: 'input', type: 'number', min: f.min, max: f.max, step: 1, value: v, 'aria-label': f.label });
       i.addEventListener('input', () => { const n = Math.round(Number(i.value)); if (Number.isFinite(n) && n >= (f.min ?? 0) && n <= (f.max ?? Infinity)) set(f.k, n); });
@@ -452,7 +508,7 @@ function fieldEl(f) {
     return h('div', { class: 'fld' }, h('div', { class: 'fld-row' }, h('b', {}, f.label), out), slider, hint);
   }
   if (f.t === 'action') {
-    return h('div', { class: 'fld' }, h('button', { type: 'button', class: 'btn sm', onclick: f.run }, f.label));
+    return h('div', { class: 'fld' }, h('button', { type: 'button', class: 'btn sm', onclick: f.run }, f.icon ? ic(f.icon) : null, f.label));
   }
   if (f.t === 'quick') {
     return h('div', { class: 'fld' }, h('div', { class: 'quick' },
@@ -532,12 +588,20 @@ function renderConfig() {
   body.scrollTop = scroll;
 }
 
+let wselOpen = false;
 function renderWidgetPicker() {
-  $('#widget-select').replaceChildren(...widgets.map((w) => {
-    const o = h('option', { value: w.id }, `${(TYPE_META[w.type] || TYPE_META.chat)[0]}  ${w.name}`);
-    if (w.id === current?.id) o.selected = true;
-    return o;
-  }));
+  const meta = (t) => TYPE_META[t] || TYPE_META.chat;
+  const order = Object.keys(TYPE_META);
+  const sorted = [...widgets].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
+  const item = (w, cls) => [h('span', { class: `wsel-ic t-${w.type}`, html: icon(meta(w.type)[1]) }), h('span', { class: 'wsel-txt' }, h('b', {}, w.name), h('small', {}, meta(w.type)[2])), cls];
+  const btn = h('button', { type: 'button', class: 'wsel-btn', 'aria-haspopup': 'listbox', 'aria-expanded': String(wselOpen), 'aria-label': 'Choose widget',
+    onclick: (e) => { e.stopPropagation(); wselOpen = !wselOpen; renderWidgetPicker(); } }, current ? item(current, null) : 'Widget', h('span', { class: 'wsel-chev', html: icon('chevron') }));
+  const menu = wselOpen ? h('ul', { class: 'wsel-menu', role: 'listbox' }, sorted.map((w) => h('li', {
+    role: 'option', 'aria-selected': String(w.id === current?.id), class: w.id === current?.id ? 'on' : '', tabindex: 0,
+    onclick: (e) => { e.stopPropagation(); wselOpen = false; selectWidget(w.id); },
+    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wselOpen = false; selectWidget(w.id); } },
+  }, item(w, w.id === current?.id ? h('span', { class: 'wsel-check', html: icon('check') }) : null)))) : null;
+  $('#widget-select').replaceChildren(btn, menu || '');
   $('#widget-name').value = current?.name || '';
   $('#nav-widgets').textContent = widgets.length;
 }
@@ -551,7 +615,7 @@ function selectWidget(id) {
   $('#chat-frame').hidden = current.type !== 'chat';
   $('#stats-frame').hidden = current.type !== 'stats';
   $('#eggs-frame').hidden = current.type !== 'eggs';
-  for (const t of ['alerts', 'goal', 'poll']) $(`#${t}-frame`).hidden = current.type !== t;
+  for (const t of ['alerts', 'goal', 'poll', 'donate']) $(`#${t}-frame`).hidden = current.type !== t;
   renderTestBar();
   renderTypeHelp();
   saveState('');
@@ -628,35 +692,45 @@ const alertsView = new AlertsView($('#alerts-preview'), settings);
 alertsView.preview = true;
 const goalView = new GoalView($('#goal-preview'), settings);
 const pollView = new PollView($('#poll-preview'), settings);
+const donateView = new DonateView($('#donate-preview'), settings);
+async function loadDonatePreview() { try { const r = await api('/api/tools/donate'); donateView.setData(r.settings.enabled && r.settings.upi ? { id: me.user.id, name: r.settings.payee || me.user.name, upi: r.settings.upi, link: `upi://pay?pa=${encodeURIComponent(r.settings.upi)}&pn=${encodeURIComponent(r.settings.payee || me.user.name || 'Streamer')}&cu=INR` } : demoDonate()); } catch { donateView.setData(demoDonate()); } }
 pollView.preview = true;
 let alertDemo = null;
 // Studio: test one alert kind in the preview (with its sound), optionally also in OBS
-const TEST_BUTTONS = [['superchat', '💰 Super Chat'], ['member', '⭐ Member'], ['gift', '🎁 Gift'], ['sub', '💚 Kick sub'], ['follow', '💚 Follow'], ['greeting', '👋 Said hi'], ['highlight', '⭐ Highlight']];
-async function testAlert(type) {
+const TEST_BUTTONS = [['superchat', 'Super Chat'], ['member', 'New member'], ['gift', 'Gift'], ['sub', 'Kick sub'], ['follow', 'Follow'], ['greeting', 'Said hi'], ['highlight', 'Highlight'], ['donation', 'Donation']];
+function testAlert(type) {
   alertDemo?.stop(); alertDemo = null; // stop the automatic demo so the test stays visible
   alertsView.test(type);
-  if ($('#send-obs')?.checked) {
-    try { await api('/api/tools/test-alert', { method: 'POST', body: JSON.stringify({ type }) }); toast('Test alert sent to OBS'); } catch (e) { toast(e.message, 'err'); }
-  }
 }
 function renderTestBar() {
   const bar = $('#alert-tests');
   bar.hidden = current?.type !== 'alerts';
-  if (bar.hidden || bar.childElementCount) return;
-  bar.append(h('span', { class: 'muted tiny' }, 'Test:'), TEST_BUTTONS.map(([t, label]) => h('button', { type: 'button', class: 'btn sm', onclick: () => testAlert(t) }, label)),
-    h('label', { class: 'row tiny', style: 'gap:6px;margin-left:auto' }, h('input', { type: 'checkbox', id: 'send-obs' }), 'Also send to OBS'));
+  if (bar.hidden) return;
+  const sel = h('select', { class: 'select', id: 'test-kind', 'aria-label': 'Alert to test' }, TEST_BUTTONS.map(([t, label]) => h('option', { value: t }, label)));
+  sel.value = typeOfKind(editKind);
+  bar.replaceChildren(
+    h('b', { class: 'tiny' }, 'Test alert'), sel,
+    h('button', { type: 'button', class: 'btn sm', onclick: () => testAlert(sel.value) }, ic('play'), 'Preview here'),
+    h('button', { type: 'button', class: 'btn sm primary', onclick: () => sendTestToObs(sel.value) }, ic('radio'), 'Send to OBS'),
+    h('span', { class: 'muted tiny' }, 'OBS: the widget URL must be open (OBS or a browser tab).'));
+}
+async function sendTestToObs(type) {
+  testAlert(type);
+  try { await api('/api/tools/test-alert', { method: 'POST', body: JSON.stringify({ type }) }); toast('Sent — it shows on your widget URL within ~3 s'); } catch (e) { toast(e.message, 'err'); }
 }
 const TYPE_HELP = {
-  chat: ['💬 Chat overlay', 'Your YouTube + Kick chat in one box.', 'OBS → Sources → Browser → paste the URL · 400 × 700'],
-  stats: ['📊 Stats', 'Live viewers, subscribers and followers.', 'OBS Browser source · about 800 × 140'],
-  eggs: ['🥚 Egg tracker', 'Steal an Egg spawns and game events from Discord. Layout → Alert pops one up at a time.', 'OBS Browser source · size shown above the preview'],
-  alerts: ['🔔 Alerts', 'Pops up for Super Chats, new members, gifts, Kick subs & follows and messages you ⭐ highlight. 1) Which alerts → turn kinds on/off, text, sound, own picture  2) Look & timing → time on screen, size, style  3) Test with the buttons under the preview.', 'OBS Browser source · 900 × 260 · tick “Control audio via OBS” for sounds'],
-  goal: ['🎯 Goal', 'Progress bar to a subscriber / follower target. Set the target in Goal.', 'OBS Browser source · 700 × 120'],
-  poll: ['🗳️ Poll', 'Shows your chat poll live and hides when there is none. Start polls in Live tools → Chat poll.', 'OBS Browser source · 520 × 360'],
+  chat: ['Chat overlay', 'Your YouTube + Kick chat in one box.', 'OBS → Sources → Browser → paste the URL · 400 × 700'],
+  stats: ['Stats', 'Live viewers, subscribers and followers.', 'OBS Browser source · about 800 × 140'],
+  eggs: ['Egg tracker', 'Steal an Egg spawns and game events from Discord. Layout → Alert pops one up at a time.', 'OBS Browser source · size shown above the preview'],
+  alerts: ['Alerts', 'Pops up for Super Chats, new members, gifts, Kick subs & follows, UPI donations and messages you highlight. 1) Which alerts → turn kinds on/off, text, sound, own picture  2) Look & timing → time on screen, size, style  3) Test with the buttons under the preview.', 'OBS Browser source · 900 × 260 · tick “Control audio via OBS” for sounds'],
+  goal: ['Goal', 'Progress bar to a subscriber / follower target. Set the target in Goal.', 'OBS Browser source · 700 × 120'],
+  poll: ['Poll', 'Shows your chat poll live and hides when there is none. Start polls in Live tools → Chat poll.', 'OBS Browser source · 520 × 360'],
+  donate: ['Donate QR', 'Your UPI QR code on stream so viewers can scan and donate. Set your UPI ID on the Donations page (Demo shows a sample).', 'OBS Browser source · 520 × 200'],
 };
 function renderTypeHelp() {
   const [title, what, obs] = TYPE_HELP[current?.type] || TYPE_HELP.chat;
-  $('#type-help').replaceChildren(h('b', {}, title), h('span', {}, what), h('span', { class: 'muted' }, obs));
+  $('#type-help').replaceChildren(h('span', { class: 'th-ic', html: icon((TYPE_META[current?.type] || TYPE_META.chat)[1]) }),
+    h('div', { class: 'th-txt' }, h('b', {}, title), h('span', {}, what), h('span', { class: 'muted' }, obs)));
 }
 let livePollTimer = null;
 async function loadLivePoll() { try { const r = await api('/api/tools'); pollView.setPoll(r.poll || demoPoll()); } catch { /* keep */ } }
@@ -680,6 +754,7 @@ function refreshPreview() {
   alertsView.setSettings({ ...settings });
   goalView.setSettings({ ...settings });
   pollView.setSettings({ ...settings });
+  donateView.setSettings({ ...settings });
   if (feedMode === 'live') { statsView.setState(liveState || {}); goalView.setState(liveState || {}); }
   const url = current ? widgetUrl(current) : '';
   $('#url').value = url;
@@ -687,7 +762,7 @@ function refreshPreview() {
   $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
     : current?.type === 'eggs' ? eggsSize(settings)
       : current?.type === 'alerts' ? (settings.eggsAlertStyle === 'big' ? '900 × 500' : '900 × 260')
-        : current?.type === 'goal' ? '700 × 120' : current?.type === 'poll' ? '520 × 360' : '400 × 700';
+        : current?.type === 'goal' ? '700 × 120' : current?.type === 'poll' ? '520 × 360' : current?.type === 'donate' ? '520 × 200' : '400 × 700';
   for (const [t, size] of [['alerts', '900 × 260'], ['goal', '700 × 120'], ['poll', '520 × 360']]) $(`#${t}-frame`).dataset.size = `${t === 'alerts' && settings.eggsAlertStyle === 'big' ? '900 × 500' : size} · OBS size`;
   $('#eggs-frame').dataset.size = `${eggsSize(settings)} · OBS size`;
   $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list' && settings.eggsOrient !== 'vertical');
@@ -702,8 +777,8 @@ function setFeed(mode) {
   clearInterval(eggLiveTimer);
   alertDemo?.stop();
   clearInterval(livePollTimer);
-  if (mode === 'demo') { alertDemo = startAlertDemo((m) => alertsView.add(m), 5000); goalView.setState(demoGoalState()); pollView.setPoll(demoPoll()); }
-  else { goalView.setState(liveState || {}); loadLivePoll(); livePollTimer = setInterval(loadLivePoll, 3000); }
+  if (mode === 'demo') { alertDemo = startAlertDemo((m) => alertsView.add(m), 5000); goalView.setState(demoGoalState()); pollView.setPoll(demoPoll()); donateView.setData(demoDonate()); }
+  else { loadDonatePreview(); goalView.setState(liveState || {}); loadLivePoll(); livePollTimer = setInterval(loadLivePoll, 3000); }
   if (mode === 'demo') eggsView.setSeen([], false);
   if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list), 6000, (list) => eggsView.setEvents(list));
   else { loadLiveEggs(); eggLiveTimer = setInterval(loadLiveEggs, 10_000); }
@@ -760,7 +835,7 @@ function renderOverview() {
   };
 
   const hero = h('div', { class: 'card hero' },
-    h('div', {}, h('h2', {}, `${greet}, ${me.user.name || 'streamer'} 👋`),
+    h('div', {}, h('h2', {}, `${greet}, ${me.user.name || 'streamer'}`),
       h('p', {}, 'Your overlays are ready. Open Studio to tweak the look, or copy a URL straight into OBS.')),
     h('div', { class: 'actions' },
       h('a', { class: 'btn', href: '#connections' }, ic('plug'), 'Connections'),
@@ -1258,7 +1333,7 @@ async function renderEggs() {
     yc ? row('YouTube chat', st.youtubeBot ? `Posted by ${st.youtubeBot.channelName}` : 'Posted by the OmniChat Bot', toggle(s.youtube, (v) => save({ youtube: v }, v ? 'YouTube ON' : 'YouTube OFF'))) : null,
     kc ? row('Kick chat', 'Posted by the OmniChat Kick bot', toggle(s.kick, (v) => save({ kick: v }, v ? 'Kick ON' : 'Kick OFF'))) : null,
     !yc || !kc ? h('div', { class: 'srow' }, h('div', { class: 'txt' },
-      h('b', {}, `➕ Add ${!yc ? 'YouTube' : 'Kick'}`),
+      h('b', {}, `Add ${!yc ? 'YouTube' : 'Kick'}`),
       h('span', {}, `Connect ${!yc ? 'YouTube' : 'Kick'} to use the Egg Bot there too.`)),
       h('a', { class: 'btn sm', href: '#connections' }, 'Connect')) : null,
     row('Game events', 'Also post events like 🌊 Tidal Surge, 🦋 Butterfly Bloom and 🕶️ Slick Rick when they happen.', toggle(s.events !== false, (v) => save({ events: v }, v ? 'Events ON' : 'Events OFF'))),
@@ -1274,7 +1349,7 @@ async function renderEggs() {
           toast(`YouTube: ${r.result.youtube} · Kick: ${r.result.kick}`, r.result.youtube === 'sent' || r.result.kick === 'sent' ? 'ok' : 'err');
         } catch (e) { toast(e.message, 'err'); }
       } }, ic('send'), 'Send test message'))),
-    h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, '💡 Tip'), h('span', {}, 'Make the OmniChat Bot a moderator on your YouTube channel so slow mode never blocks it.'))));
+    h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, ic('bulb'), ' Tip'), h('span', {}, 'Make the OmniChat Bot a moderator on your YouTube channel so slow mode never blocks it.'))));
 
   // ── OmniChat Bot account only: the shared setup ──
   let botCard = null;
@@ -1340,6 +1415,7 @@ function showPage(p) {
   if (page === 'logs') renderLogs();
   if (page === 'eggs') renderEggs();
   if (page === 'tools') renderTools();
+  if (page === 'donations') renderDonations();
   if (page === 'settings') renderSettings();
 }
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));
@@ -1375,7 +1451,7 @@ function renderToolChat() {
         e.currentTarget.disabled = true;
         try { await api('/api/tools/highlight', { method: 'POST', body: JSON.stringify({ id: m.id }) }); toast('Showing on stream'); } catch (err) { toast(err.message, 'err'); }
         e.currentTarget.disabled = false;
-      } }, '⭐ Show'));
+      } }, ic('star'), 'Show'));
   }) : [h('li', { class: 'empty' }, ic('message'), h('b', {}, 'No chat yet'), 'Messages from your live YouTube and Kick chat appear here.')]));
 }
 
@@ -1448,6 +1524,61 @@ function commandsCard(cfg, part) {
       } }, 'Save')));
 }
 
+async function donateCard() {
+  let r;
+  try { r = await api('/api/tools/donate'); } catch (e) { return h('div', { class: 'card' }, h('p', {}, e.message)); }
+  const cfg = { ...r.settings };
+  const input = (k, attrs) => h('input', { class: 'input', value: cfg[k] ?? '', ...attrs, oninput: (e) => { cfg[k] = e.target.value; } });
+  const amounts = h('input', { class: 'input', value: cfg.amounts.join(', '), placeholder: '50, 100, 200, 500', oninput: (e) => { cfg.amounts = e.target.value.split(/[ ,]+/).map(Number).filter(Boolean); } });
+  const on = h('input', { type: 'checkbox', checked: cfg.enabled ? true : undefined, onchange: (e) => { cfg.enabled = e.target.checked; } });
+  const save = async () => {
+    try { await api('/api/tools/donate', { method: 'PUT', body: JSON.stringify({ ...cfg, min: Number(cfg.min) }) }); toast(cfg.enabled ? 'Donations ON — share your page link' : 'Saved'); renderDonations(); } catch (e) { toast(e.message, 'err'); }
+  };
+  const setup = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('heart'), h('h3', {}, 'Donation box (UPI)'), h('div', { class: 'actions' }, h('label', { class: 'row', style: 'gap:8px' }, h('span', { class: 'switch' }, on, h('span')), 'Donations ON'))),
+    h('p', { class: 'muted tiny', style: 'margin-top:0' }, 'Viewers pay straight to your UPI ID from GPay / PhonePe / Paytm. OmniChat never touches the money and cannot see payments, so you confirm each one below (Received) before it shows as an alert.'),
+    h('div', { class: 'tgrid2' },
+      h('label', { class: 'tfield' }, h('b', { class: 'tiny' }, 'Your UPI ID'), input('upi', { placeholder: 'yourname@upi', maxlength: 120, autocomplete: 'off', spellcheck: 'false' })),
+      h('label', { class: 'tfield' }, h('b', { class: 'tiny' }, 'Name shown to donors'), input('payee', { placeholder: me.user.name || 'Your name', maxlength: 50 }))),
+    h('label', { class: 'tfield' }, h('b', { class: 'tiny' }, 'Message on your page'), input('text', { maxlength: 200 })),
+    h('div', { class: 'tgrid2' },
+      h('label', { class: 'tfield' }, h('b', { class: 'tiny' }, 'Quick amounts (₹)'), amounts),
+      h('label', { class: 'tfield' }, h('b', { class: 'tiny' }, 'Minimum (₹)'), input('min', { type: 'number', min: 1, max: 100000 }))),
+    r.settings.enabled && r.settings.upi ? h('div', { class: 'notice ok' }, ic('link'), h('div', {}, 'Your donation page: ', h('a', { href: r.page, target: '_blank', rel: 'noopener' }, r.page), ' ',
+      h('button', { type: 'button', class: 'btn sm', onclick: () => copyText(r.page) }, ic('copy'), 'Copy'), h('br'), h('span', { class: 'muted tiny' }, 'Put it in your stream description / pinned chat. Add the Donate QR widget in Studio to show the QR on stream.'))) : null,
+    h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' }, h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')));
+  const pending = r.items.filter((x) => x.status === 'pending');
+  const done = r.items.filter((x) => x.status !== 'pending').slice(0, 20);
+  const row = (x) => h('li', { class: 'tmsg' }, h('span', { class: 'tag ok' }, `₹${x.amount}`),
+    h('div', { class: 'ttxt' }, h('b', {}, x.name), x.message ? h('span', {}, ` — ${x.message}`) : null, h('span', { class: 'muted tiny' }, ` · ${ago(x.ts)}`)),
+    x.status === 'pending' ? [
+      h('button', { type: 'button', class: 'btn sm primary', title: 'Check your UPI app first. Shows the Donation alert on stream.', onclick: async () => { try { await api(`/api/tools/donate/${x.id}/confirm`, { method: 'POST' }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, ic('check'), 'Received'),
+      h('button', { type: 'button', class: 'btn sm ghost', title: 'Not received / spam', onclick: async () => { try { await api(`/api/tools/donate/${x.id}`, { method: 'DELETE' }); renderDonations(); } catch (e) { toast(e.message, 'err'); } } }, 'Dismiss')]
+      : h('span', { class: `tag ${x.status === 'received' ? 'ok' : ''}` }, x.status));
+  const list = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('heart'), h('h3', {}, 'Donation notes'), h('span', { class: 'sub' }, `${pending.length} waiting for you`)),
+    h('p', { class: 'muted tiny', style: 'margin-top:0' }, 'Open your UPI app, check the money arrived, then press Received. The alert appears on your Alerts widget.'),
+    pending.length || done.length ? h('ul', { class: 'tchat' }, [...pending, ...done].map(row)) : h('p', { class: 'muted tiny' }, 'No donations yet.'));
+  return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list);
+}
+
+async function renderDonations() {
+  const root = $('#page-donations');
+  const card = await donateCard();
+  if (page === 'donations') root.replaceChildren(h('div', { class: 'tpanel' }, card));
+  updateDonationBadge();
+}
+async function updateDonationBadge() {
+  try {
+    const r = await api('/api/tools/donate');
+    const n = r.items.filter((x) => x.status === 'pending').length;
+    const b = $('#nav-donations');
+    b.textContent = n;
+    b.hidden = !n;
+  } catch { /* ignore */ }
+}
+setInterval(() => { if (me) updateDonationBadge(); }, 60_000);
+
 async function summaryCard() {
   const body = h('div', {}, h('span', { class: 'muted tiny' }, 'Loading…'));
   const sel = h('select', { class: 'select', style: 'width:auto', onchange: (e) => { tools.hours = Number(e.target.value); load(); } },
@@ -1461,7 +1592,7 @@ async function summaryCard() {
       r.historyOff ? h('div', { class: 'notice info' }, ic('info'), h('div', {}, 'Chat history is off (Settings), so the summary is empty. Turn it on to see stats.')) : null,
       h('div', { class: 'tsums' }, tile('Messages', fmtN(r.messages)), tile('Chatters', fmtN(r.chatters)), tile('Peak viewers', peak),
         tile('Super Chats', fmtN(r.superchats.length)), tile('New members', fmtN(r.members)), tile('Gifts', fmtN(r.giftedMembers + r.kickGifts)),
-        tile('Kick subs', fmtN(r.kickSubs)), tile('Kick follows', fmtN(r.follows))),
+        tile('Kick subs', fmtN(r.kickSubs)), tile('Kick follows', fmtN(r.follows)), tile('UPI donations', fmtN(r.donations || 0))),
       h('div', { class: 'grid two', style: 'margin-top:12px' },
         h('div', {}, h('b', { class: 'tiny' }, 'Top chatters'), r.topChatters.length
           ? h('ol', { class: 'ttop' }, r.topChatters.map((c) => h('li', {}, platIcon(c.platform), h('span', {}, c.name), h('b', {}, fmtN(c.n)))))
@@ -1474,7 +1605,7 @@ async function summaryCard() {
   return h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('chart'), h('h3', {}, 'Stream summary'), h('div', { class: 'actions' }, sel)), body);
 }
 
-const TOOL_TABS = [['chat', 'Live chat', 'message'], ['poll', 'Chat poll', 'chart'], ['commands', 'Bot commands', 'message'], ['timers', 'Timers', 'clock'], ['summary', 'Stream summary', 'chart']];
+const TOOL_TABS = [['chat', 'Live chat', 'message'], ['poll', 'Chat poll', 'vote'], ['commands', 'Bot commands', 'message'], ['timers', 'Timers', 'clock'], ['summary', 'Stream summary', 'chart']];
 async function renderTools() {
   const root = $('#page-tools');
   if (!tools.tab) { try { tools.tab = localStorage.getItem('omnichat.toolsTab') || 'chat'; } catch { tools.tab = 'chat'; } }
@@ -1493,7 +1624,7 @@ async function renderTools() {
   if (tools.tab === 'chat') {
     tools.chatUl = h('ul', { class: 'tchat' });
     panel = h('div', { class: 'card' },
-      h('div', { class: 'card-head' }, ic('message'), h('h3', {}, 'Live chat'), h('span', { class: 'sub' }, '⭐ Show = big card on stream (Alerts widget)'),
+      h('div', { class: 'card-head' }, ic('message'), h('h3', {}, 'Live chat'), h('span', { class: 'sub' }, 'Show = big card on stream (Alerts widget)'),
         h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn sm ghost', onclick: async () => { try { await api('/api/tools/highlight', { method: 'DELETE' }); toast('Highlight hidden'); } catch (e) { toast(e.message, 'err'); } } }, 'Hide highlight'))),
       needWidget('alerts', 'Highlights'), tools.chatUl);
   } else if (tools.tab === 'poll') {
@@ -1515,7 +1646,8 @@ setInterval(async () => {
 }, 2500);
 
 // ── static wiring ──
-$('#widget-select').addEventListener('change', (e) => selectWidget(e.target.value));
+document.addEventListener('click', (e) => { if (wselOpen && !e.target.closest('#widget-select')) { wselOpen = false; renderWidgetPicker(); } });
+document.addEventListener('keydown', (e) => { if (wselOpen && e.key === 'Escape') { wselOpen = false; renderWidgetPicker(); } });
 $('#widget-name').addEventListener('input', (e) => {
   if (!current) return;
   const v = e.target.value.trim();
@@ -1580,6 +1712,7 @@ async function boot() {
     onLog: onLiveLog,
   });
   setFeed('demo');
+  updateDonationBadge();
   showPage(location.hash.slice(1) || 'overview');
   autoSyncKick();
   setInterval(() => autoSyncKick({ force: true }), 10 * 60_000); // keep the follower total fresh while the dashboard is open

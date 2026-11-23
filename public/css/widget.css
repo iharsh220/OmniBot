@@ -601,3 +601,14 @@
 .ow-alerts .egg-himg.oc-custom { width: 5em; height: 5em; padding: 0; background: none; }
 .ow-alerts .egg-himg.oc-custom img { object-fit: contain; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--rc) 50%, transparent)); }
 .alert-big.ow-alerts .oc-count { margin-left: 0; }
+
+/* ═════════ Donate widget (UPI QR) ═════════ */
+.ow-donate { padding: 10px; }
+.oc-donate { display: flex; align-items: center; gap: 1em; background: var(--msg-bg); color: var(--text); border-radius: var(--radius); padding: calc(var(--pad) * 1.1); border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.has-shadow .oc-donate { box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.oc-dqr { width: 7.5em; height: 7.5em; background: #fff; border-radius: calc(var(--radius) * .6); padding: .35em; flex: 0 0 auto; }
+.oc-dtext { display: flex; flex-direction: column; gap: .2em; min-width: 0; }
+.oc-dtitle { font-size: 1.25em; font-weight: var(--name-w, 800); line-height: 1.15; }
+.oc-dsub { opacity: .75; font-size: .9em; }
+.oc-dupi { font-weight: 800; color: var(--accent); overflow-wrap: anywhere; }
+.oc-dlink { font-size: .8em; opacity: .65; overflow-wrap: anywhere; }

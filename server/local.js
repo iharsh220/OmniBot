@@ -31,6 +31,7 @@ const server = express();
 server.use(api);
 // Same rewrites as vercel.json
 server.get('/login', (_req, res) => res.sendFile(path.join(PUBLIC, 'login.html')));
+server.get('/d/:uid', (_req, res) => res.sendFile(path.join(PUBLIC, 'donate.html')));
 server.get(['/w/:id', '/demo'], (_req, res) => res.sendFile(path.join(PUBLIC, 'widget.html')));
 server.use(express.static(PUBLIC, { extensions: ['html'], index: 'index.html' }));
 server.use((_req, res) => res.status(404).send('Not found'));

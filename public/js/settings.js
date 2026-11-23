@@ -10,8 +10,9 @@ export const ALERT_KINDS = [
   ['Follow', 'New follower', 'pop'],
   ['Greeting', '👋 Said hi', 'chime'],
   ['Highlight', '⭐ Highlight', 'bell'],
+  ['Donation', 'Donation · {amount}', 'cash'],
 ];
-export const ALERT_SOUNDS = ['default', 'chime', 'coin', 'fanfare', 'pop', 'sparkle', 'bell', 'levelup', 'whoosh', 'none', 'custom'];
+export const ALERT_SOUNDS = ['default', 'chime', 'coin', 'fanfare', 'pop', 'sparkle', 'bell', 'levelup', 'whoosh', 'cash', 'airhorn', 'drumroll', 'laser', 'magic', 'notify', 'tada', 'bubble', 'powerup', 'heartbeat', 'none', 'custom'];
 const alertKindDefaults = () => Object.fromEntries(ALERT_KINDS.flatMap(([k, text]) => [
   [`alert${k}Text`, text], [`alert${k}Sound`, 'default'], [`alert${k}SoundUrl`, ''], [`alert${k}Image`, ''],
 ]));
@@ -86,6 +87,7 @@ export const DEFAULTS = {
   alertFollow: true, // Kick follows
   alertGreeting: false, // YouTube vertical-live "said hi"
   alertHighlight: true, // messages you highlight from the dashboard
+  alertDonation: true, // UPI donations you confirm in Live tools → Donations
   alertMessage: true, // show the viewer's message on the alert
   alertSound: true, // short chime when an alert appears
   alertVolume: 60,
@@ -98,6 +100,10 @@ export const DEFAULTS = {
   goalStyle: 'bar', // bar | slim
   goalPercent: true,
   goalNumbers: true,
+  // ── donate widget (UPI QR on stream) ──
+  donateTitle: 'Support the stream 💜',
+  donateShowUpi: true,
+  donateShowLink: true,
   // ── poll widget ──
   pollHideIdle: true, // hide when there is no poll (and 60 s after it ended)
   pollHint: true, // "Type !vote 1 …" line // OBS: scale (and re-flow columns) so the whole overlay fits any resolution
@@ -214,11 +220,13 @@ const RANGES = {
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
   eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
 };
-const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40,
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40, donateTitle: 50,
   ...Object.fromEntries(ALERT_KINDS.flatMap(([k]) => [[`alert${k}Text`, 80], [`alert${k}SoundUrl`, 400], [`alert${k}Image`, 400]])),
 };
 /** Safe https URL from a settings field (custom sounds/pictures), else null. */
 export const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\/[^\s"'<>()\\]{4,400}$/.test(u.trim()) ? u.trim() : null);
+/** A file the streamer uploaded (/api/media/<id>) or an https URL, else null. */
+export const mediaUrl = (u) => (typeof u === 'string' && /^\/api\/media\/[\w-]{8,40}$/.test(u.trim()) ? u.trim() : httpsUrl(u));
 
 /** Starting looks for new widgets (merged over DEFAULTS). Used by Studio "new widget" and the server's default widgets. */
 export const WIDGET_PRESETS = {
@@ -228,6 +236,7 @@ export const WIDGET_PRESETS = {
   alerts: { theme: 'midnight', font: 'Inter', fontSize: 17, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 94, accent: '#a78bfa', radius: 14, shadow: true, pageBgOpacity: 0, eggsPopup: 8, eggsAlertStyle: 'card', eggsAlertPos: 'top', animation: 'pop' },
   goal: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 },
   poll: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 },
+  donate: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#22c55e', radius: 14, shadow: true, pageBgOpacity: 0 },
 };
 export const DEFAULT_WIDGETS = [['chat', 'My chat'], ['stats', 'My stats'], ['alerts', 'My alerts'], ['eggs', 'Egg tracker'], ['goal', 'My goal'], ['poll', 'My poll']];
 
