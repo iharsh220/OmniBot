@@ -850,7 +850,7 @@ function renderOverview() {
       h('p', {}, 'Your overlays are ready. Open Studio to tweak the look, or copy a URL straight into OBS.')),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', type: 'button', onclick: showWhatsNewModal }, ic('sparkles'), "What's new"),
-      h('button', { class: 'btn creator-hero-btn', type: 'button', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕'),
+      h('button', { class: 'btn creator-hero-btn', type: 'button', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf'),
       h('a', { class: 'btn', href: '#connections' }, ic('plug'), 'Connections'),
       h('a', { class: 'btn primary', href: '#studio' }, ic('palette'), 'Open Studio')));
 
@@ -907,7 +907,7 @@ function renderOverview() {
           h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
             ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
           h('a', { class: 'cs-pill cs-kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
-            ICONS.kick, h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
+            h('span', { class: 'cs-ico', html: ICONS.kick }), h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
           h('a', { class: 'cs-pill cs-disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
             ic('discord'), h('b', {}, 'Discord'), h('span', { class: 'cs-count' }, 'Wolf Pack'))
         )
@@ -1666,7 +1666,7 @@ function showCreatorModal() {
               h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
                 ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
               h('a', { class: 'cs-pill cs-kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
-                ICONS.kick, h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
+                h('span', { class: 'cs-ico', html: ICONS.kick }), h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
               h('a', { class: 'cs-pill cs-disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
                 ic('discord'), h('b', {}, 'Discord'), h('span', { class: 'cs-count' }, 'Wolf Pack'))
             )
@@ -1912,7 +1912,7 @@ async function donateCard() {
         h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created with ❤️ by SmartWolf. If you love this project, consider supporting the developer with a cup of tea or coffee!')
       )
     ),
-    h('button', { type: 'button', class: 'btn sm creator-banner-btn', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕')
+    h('button', { type: 'button', class: 'btn sm creator-banner-btn', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf')
   );
   return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual, creatorBanner);
 }
