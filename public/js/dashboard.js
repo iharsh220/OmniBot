@@ -841,6 +841,7 @@ function renderOverview() {
     h('div', {}, h('h2', {}, `${greet}, ${me.user.name || 'streamer'}`),
       h('p', {}, 'Your overlays are ready. Open Studio to tweak the look, or copy a URL straight into OBS.')),
     h('div', { class: 'actions' },
+      h('button', { class: 'btn', type: 'button', onclick: showWhatsNewModal }, ic('sparkles'), "What's new"),
       h('a', { class: 'btn', href: '#connections' }, ic('plug'), 'Connections'),
       h('a', { class: 'btn primary', href: '#studio' }, ic('palette'), 'Open Studio')));
 
@@ -1403,10 +1404,110 @@ async function renderEggs() {
 setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#page-eggs input')) renderEggs(); }, 10_000);
 
 // ═════════════════════════════════════════════════════════════════════
+//  What's New Modal
+// ═════════════════════════════════════════════════════════════════════
+const WHATS_NEW_ITEMS = [
+  {
+    badge: 'NEW',
+    color: 'ok',
+    icon: 'heart',
+    title: 'Real-time UPI Donations (0% Platform Fee)',
+    desc: 'Direct-to-streamer UPI payments via QR code & mobile deep-link (GPay, PhonePe, Paytm, BHIM) with zero platform fees. Features real-time approval popup with audio chime, live in-place notes list without refreshing, and an on-screen Donate QR widget for OBS.'
+  },
+  {
+    badge: 'NEW',
+    color: 'purple',
+    icon: 'bell',
+    title: 'Dedicated Alerts Overlay Widget',
+    desc: 'Standalone OBS overlay for Super Chats, Memberships, Gifts, Kick subs/follows, "said hi" greetings, and UPI donations. Features 18 procedural WebAudio synthesizer sounds, custom picture/audio uploads, 7 visual styles, and stream count badges.'
+  },
+  {
+    badge: 'NEW',
+    color: 'warn',
+    icon: 'zap',
+    title: 'Live Tools & Chatbot Automation',
+    desc: 'All-in-one broadcast utility: 1-click Highlight Chat message on stream, interactive live polls (!vote 1) with animated OBS bar overlay, custom chatbot !commands with variables, automated live timers, and post-stream analytics summary.'
+  },
+  {
+    badge: 'NEW',
+    color: 'blue',
+    icon: 'target',
+    title: 'Subscriber & Follower Goal Bar',
+    desc: 'Live animated goal progress bar overlay for YouTube subscribers, Kick followers, or combined totals with custom targets and percentage display.'
+  },
+  {
+    badge: 'EXPANDED',
+    color: 'purple',
+    icon: 'palette',
+    title: '7 Overlays in Studio Suite',
+    desc: 'Studio now includes Chat, Stats, Alerts, Eggs Tracker, Goal Bar, Live Poll, and Donate QR widgets with instant OBS copy links and real-time previews.'
+  },
+  {
+    badge: 'UPDATED',
+    color: 'ok',
+    icon: 'egg',
+    title: 'Egg Bot Game Events & Multi-Layouts',
+    desc: 'Automatic detection and announcements for game events (Tidal Surge, Butterfly Bloom, Slick Rick). New Alert, Spotlight, and Events layouts with Fit to screen auto-scaling for horizontal 16:9 and vertical 9:16 Shorts.'
+  }
+];
+
+let whatsNewOpen = false;
+function showWhatsNewModal() {
+  if (whatsNewOpen) return;
+  whatsNewOpen = true;
+  let bg;
+  const close = () => {
+    whatsNewOpen = false;
+    if (bg) bg.remove();
+    document.removeEventListener('keydown', onKey);
+    if (location.hash === '#whats-new') history.replaceState(null, '', '#' + (prevPage || 'overview'));
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+
+  const list = h('div', { class: 'wn-list' }, WHATS_NEW_ITEMS.map((item) => h('div', { class: 'wn-card' },
+    h('div', { class: 'wn-head' },
+      h('div', { class: 'wn-icon' }, ic(item.icon)),
+      h('div', { class: 'wn-meta' },
+        h('div', { class: 'wn-row' },
+          h('b', { class: 'wn-title' }, item.title),
+          h('span', { class: `tag ${item.color}` }, item.badge)
+        ),
+        h('p', { class: 'wn-desc' }, item.desc)
+      )
+    )
+  )));
+
+  bg = h('div', { class: 'modal-bg', role: 'dialog', 'aria-modal': 'true', onclick: (e) => { if (e.target === bg) close(); } },
+    h('div', { class: 'modal wn-modal' },
+      h('div', { class: 'wn-modal-head' },
+        h('div', { style: 'display:flex;align-items:center;gap:12px' },
+          h('span', { class: 'wn-title-icon' }, ic('sparkles')),
+          h('div', {}, h('h3', { style: 'margin:0;font-size:18px' }, "What's new in OmniChat"), h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Latest updates & features (November 2026)'))
+        ),
+        h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Close', onclick: close }, '✕')
+      ),
+      list,
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:16px' },
+        h('button', { type: 'button', class: 'btn primary', onclick: close }, "Awesome, let's explore!")
+      )
+    )
+  );
+
+  document.body.append(bg);
+}
+
+// ═════════════════════════════════════════════════════════════════════
 //  Routing / shell
 // ═════════════════════════════════════════════════════════════════════
+let prevPage = 'overview';
 function showPage(p) {
-  page = PAGES[p] ? p : 'overview';
+  if (p === 'whats-new') {
+    showWhatsNewModal();
+    return;
+  }
+  prevPage = PAGES[p] ? p : 'overview';
+  page = prevPage;
   for (const id of Object.keys(PAGES)) $(`#page-${id}`).hidden = id !== page;
   $$('.nav-item').forEach((a) => a.classList.toggle('on', a.dataset.page === page));
   $('#page-title').textContent = PAGES[page][0];
@@ -1840,6 +1941,7 @@ async function boot() {
   });
   setFeed('demo');
   updateDonationBadge();
+  $('#open-whats-new')?.addEventListener('click', showWhatsNewModal);
   showPage(location.hash.slice(1) || 'overview');
   autoSyncKick();
   setInterval(() => autoSyncKick({ force: true }), 10 * 60_000); // keep the follower total fresh while the dashboard is open

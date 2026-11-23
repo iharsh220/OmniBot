@@ -61,8 +61,24 @@ async function main() {
       const res = await fetch(`/api/donate/${uid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, name: nameIn.value, message: msgIn.value }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || 'Could not send, please try again');
-      root.replaceChildren(el('div', { class: 'donate-done' }, el('div', { class: 'big' }, '💜'), el('h2', {}, 'Thank you!'),
-        el('p', {}, `${d.name} will see your ₹${amount} donation note. Once they confirm the payment it can show on stream.`)));
+      root.replaceChildren(el('div', { class: 'donate-done' },
+        el('div', { class: 'big' }, '💜'),
+        el('h2', {}, 'Thank you!'),
+        el('p', {}, `${d.name} will see your ₹${amount} donation note. Once they confirm the payment it can show on stream.`),
+        el('div', { style: 'margin-top:22px;display:flex;justify-content:center;gap:10px' },
+          el('button', {
+            type: 'button', class: 'btn primary',
+            onclick: () => {
+              msgIn.value = '';
+              custom.value = '';
+              amount = d.amounts[1] || d.amounts[0] || d.min;
+              paid.disabled = false;
+              err.textContent = '';
+              renderForm();
+            }
+          }, 'Send another donation / Pay again')
+        )
+      ));
     } catch (e) { err.textContent = e.message; paid.disabled = false; }
   } }, 'I’ve paid — tell the streamer');
 
@@ -70,12 +86,16 @@ async function main() {
     d.avatar && /^https:\/\//.test(d.avatar) ? el('img', { src: d.avatar, alt: '', referrerpolicy: 'no-referrer' }) : el('div', { class: 'ph' }, (d.name || '?')[0].toUpperCase()),
     el('div', {}, el('h1', {}, `Support ${d.name}`), el('p', { class: 'muted' }, d.text)));
   const qrBox = el('div', { class: 'donate-qrbox' }, qr, el('p', { class: 'muted tiny' }, isMobile ? 'Or scan from another phone' : 'Scan with any UPI app — GPay, PhonePe, Paytm, BHIM'));
-  root.replaceChildren(...[head,
-    el('label', { class: 'donate-label' }, 'Amount'), chips, custom,
-    el('label', { class: 'donate-label' }, 'Your name & message'), nameIn, msgIn,
-    isMobile ? pay : null, qrBox, !isMobile ? pay : null,
-    el('div', { class: 'donate-upi' }, el('span', { class: 'muted tiny' }, 'UPI ID'), el('b', {}, d.upi), copy),
-    el('div', { class: 'donate-after' }, el('p', { class: 'muted tiny' }, 'After paying, press this so the streamer knows (they confirm it before it shows on stream):'), paid, err)].filter(Boolean));
-  refresh();
+
+  const renderForm = () => {
+    root.replaceChildren(...[head,
+      el('label', { class: 'donate-label' }, 'Amount'), chips, custom,
+      el('label', { class: 'donate-label' }, 'Your name & message'), nameIn, msgIn,
+      isMobile ? pay : null, qrBox, !isMobile ? pay : null,
+      el('div', { class: 'donate-upi' }, el('span', { class: 'muted tiny' }, 'UPI ID'), el('b', {}, d.upi), copy),
+      el('div', { class: 'donate-after' }, el('p', { class: 'muted tiny' }, 'After paying, press this so the streamer knows (they confirm it before it shows on stream):'), paid, err)].filter(Boolean));
+    refresh();
+  };
+  renderForm();
 }
 main().catch(() => fail('Could not load. Please refresh the page.'));
