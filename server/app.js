@@ -19,6 +19,7 @@ import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickBotReady } from './kick.js';
 import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCookie, readLastLogin, clearLastLogin } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
+import { highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -31,7 +32,7 @@ app.use((req, _res, next) => {
 });
 app.use(['/api', '/auth', '/webhooks'], securityHeaders);
 
-const WIDGET_TYPES = ['chat', 'stats', 'eggs'];
+const WIDGET_TYPES = ['chat', 'stats', 'eggs', 'alerts', 'goal', 'poll'];
 const cleanName = (v) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 60);
 const widgetOut = (w) => ({ id: w.id, type: w.type, name: w.name, settings: w.settings || {}, updatedAt: w.updatedAt });
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
@@ -114,6 +115,17 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
     if (out.statePatch) await db.update(`live/${out.uid}`, (L) => { L.kick = { ...(L.kick || {}), ...out.statePatch }; return L; }, { kick: {} });
     if (out.logs.length) await addLogs(out.uid, out.logs);
     // !egghistory typed in Kick chat â†’ reply as the Kick bot
+    // Live tools: poll votes + custom commands typed in Kick chat
+    try {
+      const replies = (await processChats(out.uid, out.user, out.chats)).filter((r) => r.to === 'kick');
+      if (replies.length && await kickBotReady()) {
+        const kickAcc = findAccount(out.user, 'kick', out.broadcasterId) || listAccounts(out.user, 'kick')[0];
+        for (const r of replies) {
+          try { await postKickChat(kickAcc.channelId, r.text); await log(out.uid, 'info', 'bot', `${r.cmd} → kick`); }
+          catch (e) { await log(out.uid, 'warn', 'bot', `Kick chat post failed: ${e.message}`); }
+        }
+      }
+    } catch (e) { console.warn('[tools] kick', e.message); }
     const cmd = out.chats.find((m) => /^!egghistory\b/i.test((m.parts || []).map((x) => x.text || '').join('').trim()));
     if (cmd && await kickBotReady()) {
       const kickAcc = findAccount(out.user, 'kick', out.broadcasterId) || listAccounts(out.user, 'kick')[0];
@@ -150,6 +162,11 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
     return res.json(out);
   }
   const live = await tick(user);
+  if (w.type === 'poll') {
+    const out = { poll: publicPoll(await readPoll(user.id)), v: w.updatedAt };
+    if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
+    return res.json(out);
+  }
   const out = { ...(await readEvents(user.id, num(req.query.c))), state: publicState(live, user, { forWidget: true }), v: w.updatedAt };
   if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
   res.json(out);
@@ -394,6 +411,36 @@ api.post('/eggs/test', ah(async (req, res) => {
   res.json({ ok: true, text, result });
 }));
 
+// ── Live tools: highlight, poll, commands/timers, stream summary ──
+api.get('/tools', ah(async (req, res) => {
+  res.json({ settings: toolSettings(req.user), poll: publicPoll(await readPoll(req.user.id)) });
+}));
+api.post('/tools/highlight', ah(async (req, res) => {
+  const id = String(req.body?.id || '').slice(0, 120);
+  if (!id) return res.status(400).json({ error: 'Missing message id' });
+  const msg = await highlightMessage(req.user.id, id);
+  res.json({ ok: true, id: msg.id });
+}));
+api.delete('/tools/highlight', ah(async (req, res) => { await clearHighlight(req.user.id); res.json({ ok: true }); }));
+api.post('/tools/poll', ah(async (req, res) => {
+  const poll = await startPoll(req.user.id, req.body || {});
+  await log(req.user.id, 'info', 'poll', `Poll started: ${poll.question}`);
+  res.json({ ok: true, poll });
+}));
+api.post('/tools/poll/end', ah(async (req, res) => res.json({ ok: true, poll: await endPoll(req.user.id) })));
+api.delete('/tools/poll', ah(async (req, res) => { await clearPoll(req.user.id); res.json({ ok: true }); }));
+api.put('/tools/settings', ah(async (req, res) => {
+  const next = validateTools(req.body || {}, toolSettings(req.user));
+  await updateUser(req.user.id, (u) => ({ ...u, tools: next }));
+  await log(req.user.id, 'info', 'bot', `Commands saved: ${next.commands.length} command(s), ${next.timers.length} timer(s)`);
+  res.json({ ok: true, settings: next });
+}));
+api.get('/tools/summary', ah(async (req, res) => {
+  const live = await db.get(`live/${req.user.id}`);
+  const s = await summary(req.user.id, req.query.hours, live?.session || null);
+  res.json({ ...s, historyOff: (req.user.historyDays ?? 7) === 0 });
+}));
+
 api.get('/logs', ah(async (req, res) => {
   const r = await readLogs(req.user.id, { level: req.query.level, q: String(req.query.q || '').trim().slice(0, 100), limit: Math.min(500, Number(req.query.limit) || 200) });
   res.json(r.rows);
@@ -411,7 +458,7 @@ app.use(['/api', '/auth', '/webhooks'], (_req, res) => res.status(404).json({ er
 app.use((err, _req, res, _next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Body too large' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
-  console.error(err);
+  if (!err.status || err.status >= 500) console.error(err);
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Server error' });
 });
 

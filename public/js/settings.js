@@ -61,7 +61,28 @@ export const DEFAULTS = {
   eggsAlertPos: 'top', // where the alert sits in the OBS source: top | center | bottom
   eggsEggLabel: '{rarity} egg spawned', // alert/hero kicker ({rarity} = Secret, Eternal …)
   eggsEventLabel: '⚡ EVENT', // tag on event alerts
-  eggsFit: true, // OBS: scale (and re-flow columns) so the whole overlay fits any resolution
+  eggsFit: true,
+  // ── alerts widget (Super Chat, members, Kick subs/follows, highlights). Look/time reuse eggsAlertStyle/eggsAlertPos/eggsPopup ──
+  alertSuperchat: true, // Super Chats + Super Stickers
+  alertMember: true, // new members + member milestones
+  alertGift: true, // gifted memberships (YouTube) / gifted subs (Kick)
+  alertKickSub: true, // Kick subs + resubs
+  alertFollow: true, // Kick follows
+  alertGreeting: false, // YouTube vertical-live "said hi"
+  alertHighlight: true, // messages you highlight from the dashboard
+  alertMessage: true, // show the viewer's message on the alert
+  alertSound: true, // short chime when an alert appears
+  alertVolume: 60,
+  // ── goal widget ──
+  goalType: 'youtube-subs', // youtube-subs | kick-followers | combined
+  goalTarget: 1000,
+  goalTitle: 'Subscriber goal',
+  goalStyle: 'bar', // bar | slim
+  goalPercent: true,
+  goalNumbers: true,
+  // ── poll widget ──
+  pollHideIdle: true, // hide when there is no poll (and 60 s after it ended)
+  pollHint: true, // "Type !vote 1 …" line // OBS: scale (and re-flow columns) so the whole overlay fits any resolution
   eggsPopup: 0, // alert: seconds each new egg/event stays (0 = latest always visible) · spotlight/events: pop up for X s
   eggsCount: 12, // how many eggs to show (list / grouped)
   eggsTiles: 40, // board: max tiles per rarity
@@ -164,15 +185,17 @@ const ENUMS = {
   eggsOrient: ['horizontal', 'vertical'],
   eggsAlertStyle: ['card', 'banner', 'toast', 'neon', 'glass', 'minimal', 'big'],
   eggsAlertPos: ['top', 'center', 'bottom'],
+  goalType: ['youtube-subs', 'kick-followers', 'combined'],
+  goalStyle: ['bar', 'slim'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
-  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300],
+  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
 };
-const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24 };
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40 };
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;
@@ -239,7 +262,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `speed-${s.animSpeed}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
-    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, `alert-${s.eggsAlertStyle}`, `alert-pos-${s.eggsAlertPos}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, `alert-${s.eggsAlertStyle}`, `alert-pos-${s.eggsAlertPos}`, `goal-${s.goalStyle}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,

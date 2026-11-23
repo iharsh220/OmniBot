@@ -48,13 +48,23 @@ export async function addEvents(uid, { chats = [], deletes = [], historyDays = 7
       for (const m of chats) {
         if (have.has(m.id)) continue;
         const text = (m.parts || []).map((p) => (p.type === 'emote' ? `:${p.name}:` : p.text)).join('') || m.eventText || '';
-        H.items.push({ id: m.id, platform: m.platform, ts: m.ts, kind: m.kind, author: m.author?.name || '', text, deleted: 0 });
+        H.items.push({ id: m.id, platform: m.platform, ts: m.ts, kind: m.kind, alert: m.alert || null, amount: m.amount || null, author: m.author?.name || '', text, deleted: 0 });
       }
       for (const id of deletes) { const x = H.items.find((i) => i.id === id); if (x) x.deleted = 1; }
       H.items = H.items.filter((x) => x.ts > now - historyDays * DAY).slice(-HISTORY_MAX);
       return H;
     }, { items: [] });
   }
+}
+
+/** Put one item in the live stream only (no chat history), e.g. a highlighted message. */
+export async function pushEvent(uid, msg) {
+  await db.update(`events/${uid}`, (E) => {
+    E.seq += 1;
+    E.items.push({ seq: E.seq, t: 'chat', msg });
+    E.items = E.items.slice(-EVENTS_MAX);
+    return E;
+  }, { seq: 0, items: [] });
 }
 
 /** Events after `cursor`. First poll (no cursor) → recent chat as history. */

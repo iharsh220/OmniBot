@@ -2,6 +2,7 @@ import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings } from './setting
 import { ChatView, StatsView, EggsView, createMessageEl, ICONS } from './render.js';
 import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
+import { AlertsView, GoalView, PollView, startAlertDemo, demoPoll, demoGoalState } from './live-views.js';
 
 // ═════════════════════════════════════════════════════════════════════
 //  Helpers
@@ -107,6 +108,7 @@ let serverOk = false;
 const PAGES = {
   overview: ['Overview', 'Your stream at a glance'],
   studio: ['Studio', 'Design your overlays — every change is saved and goes live instantly'],
+  tools: ['Live tools', 'Highlight chat on stream, run polls, bot commands & timers, stream summary'],
   connections: ['Connections', 'Link the platforms you stream on'],
   eggs: ['Egg Bot', 'Post Steal an Egg spawns from your Discord into YouTube & Kick chat'],
   logs: ['Logs', 'What OmniChat is doing, and your chat history'],
@@ -120,12 +122,20 @@ const TABS = {
   chat: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'message'], ['filters', 'Filters', 'filter']],
   stats: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'chart']],
   eggs: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Layout', 'layout'], ['content', 'Content', 'egg']],
+  alerts: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['layout', 'Look & timing', 'layout'], ['content', 'Which alerts', 'zap']],
+  goal: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Goal', 'chart']],
+  poll: [['theme', 'Theme', 'sparkles'], ['style', 'Style', 'palette'], ['content', 'Poll', 'message']],
+};
+// Studio type picker / lists: emoji + icon + label per widget type
+const TYPE_META = {
+  chat: ['💬', 'message', 'Chat'], stats: ['📊', 'chart', 'Stats'], eggs: ['🥚', 'egg', 'Eggs'],
+  alerts: ['🔔', 'zap', 'Alerts'], goal: ['🎯', 'chart', 'Goal'], poll: ['🗳️', 'message', 'Poll'],
 };
 const SECTION_INFO = {
   theme: () => ['10 ready-made looks — pick one to start'],
   style: () => ['Colors, border, background, fonts, shape & avatar'],
-  layout: (type) => [type === 'chat' ? 'Alignment, width, animation & timing' : type === 'eggs' ? 'One list or panels per location' : 'Row, column or pill · alignment'],
-  content: (type) => [type === 'chat' ? 'Avatar, badges, time, events & emotes' : type === 'eggs' ? 'How many eggs, latest card, details & highlights' : 'Viewers, subs, total · titles, icons & labels'],
+  layout: (type) => [{ chat: 'Alignment, width, animation & timing', eggs: 'Board, alert, events · fit to screen', alerts: 'Style, position, animation, time on screen & sound' }[type] || 'Row, column or pill · alignment'],
+  content: (type) => [{ chat: 'Avatar, badges, time, events & emotes', eggs: 'How many eggs, latest card, details & highlights', alerts: 'Super Chats, members, Kick subs & follows, highlights', goal: 'Subscribers or followers · target & title', poll: 'Hide when idle · vote hint' }[type] || 'Viewers, subs, total · titles, icons & labels'],
   filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
@@ -134,7 +144,7 @@ const ANIM_OPTIONS = [
   ['fade', 'Fade'], ['pop', 'Pop'], ['zoom', 'Zoom in'], ['bounce', 'Bounce'], ['elastic', 'Elastic'], ['flip', '3D flip'],
   ['swing', 'Swing'], ['blur', 'Blur in'], ['wipe', 'Wipe reveal'], ['glitch', 'Glitch'], ['none', 'None'],
 ];
-const isAlert = (s) => s.eggsLayout === 'alert';
+const isAlert = (s) => current?.type === 'alerts' || s.eggsLayout === 'alert';
 const GROUPS = [
   { tab: 'style', title: 'Colors', fields: [
     { k: 'textColor', t: 'color', label: 'Text' },
@@ -248,13 +258,40 @@ const GROUPS = [
     { k: 'eggsLocation', t: 'toggle', label: 'Show location', show: (s) => s.eggsLayout !== 'grouped' },
     { k: 'eggsDetails', t: 'toggle', label: 'Money & speed' },
   ] },
-  { tab: 'layout', title: 'Alert look', types: ['eggs'], fields: [
+  { tab: 'layout', title: 'Alert look', types: ['eggs', 'alerts'], fields: [
     { k: 'eggsAlertStyle', t: 'select', label: 'Style', show: isAlert, options: [['card', 'Card (glowing)'], ['banner', 'Banner (slim bar)'], ['toast', 'Toast (compact pill)'], ['neon', 'Neon'], ['glass', 'Glass'], ['minimal', 'Minimal (no background)'], ['big', 'Big (centered)']] },
     { k: 'eggsAlertPos', t: 'seg', label: 'Position', show: isAlert, options: [['top', 'Top'], ['center', 'Center'], ['bottom', 'Bottom']] },
     { k: 'animation', t: 'select', label: 'Entry animation', show: isAlert, options: ANIM_OPTIONS },
     { k: 'animSpeed', t: 'seg', label: 'Speed', show: isAlert, options: [['fast', 'Fast'], ['normal', 'Normal'], ['slow', 'Slow']] },
-    { k: 'eggsEggLabel', t: 'text', label: 'Egg label', show: isAlert, placeholder: '{rarity} egg spawned', hint: '{rarity} becomes Secret, Eternal, Divine …' },
-    { k: 'eggsEventLabel', t: 'text', label: 'Event label', show: isAlert, placeholder: '⚡ EVENT' },
+    { k: 'eggsEggLabel', t: 'text', label: 'Egg label', types: ['eggs'], show: isAlert, placeholder: '{rarity} egg spawned', hint: '{rarity} becomes Secret, Eternal, Divine …' },
+    { k: 'eggsEventLabel', t: 'text', label: 'Event label', types: ['eggs'], show: isAlert, placeholder: '⚡ EVENT' },
+  ] },
+  { tab: 'layout', title: 'Timing & sound', types: ['alerts'], fields: [
+    { k: 'eggsPopup', t: 'range', label: 'Show each for', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Always (latest stays)' : `${v} s, then hide`), hint: 'Several at once show one after another' },
+    { k: 'alertSound', t: 'toggle', label: 'Sound', hint: 'Short chime. In OBS tick “Control audio via OBS” to mix it' },
+    { k: 'alertVolume', t: 'range', label: 'Volume', min: 0, max: 100, unit: '%', show: (s) => s.alertSound },
+  ] },
+  { tab: 'content', title: 'Which alerts', types: ['alerts'], fields: [
+    { k: 'alertSuperchat', t: 'toggle', label: 'Super Chats & Super Stickers', hint: 'YouTube' },
+    { k: 'alertMember', t: 'toggle', label: 'New members & milestones', hint: 'YouTube' },
+    { k: 'alertGift', t: 'toggle', label: 'Gifted memberships / gifted subs', hint: 'YouTube + Kick' },
+    { k: 'alertKickSub', t: 'toggle', label: 'Subs & resubs', hint: 'Kick' },
+    { k: 'alertFollow', t: 'toggle', label: 'New followers', hint: 'Kick (YouTube does not report new subscribers live)' },
+    { k: 'alertGreeting', t: 'toggle', label: '“Said hi”', hint: 'YouTube vertical live' },
+    { k: 'alertHighlight', t: 'toggle', label: 'Highlighted messages', hint: 'Live tools → chat → ⭐ Show' },
+    { k: 'alertMessage', t: 'toggle', label: 'Show the viewer’s message' },
+  ] },
+  { tab: 'content', title: 'Goal', types: ['goal'], fields: [
+    { k: 'goalType', t: 'seg', label: 'Count', options: [['youtube-subs', 'YouTube subs'], ['kick-followers', 'Kick followers'], ['combined', 'Both']] },
+    { k: 'goalTarget', t: 'number', label: 'Target', min: 1, max: 100000000 },
+    { k: 'goalTitle', t: 'text', label: 'Title', placeholder: 'Subscriber goal' },
+    { k: 'goalStyle', t: 'seg', label: 'Look', options: [['bar', 'Thick bar'], ['slim', 'Slim bar']] },
+    { k: 'goalNumbers', t: 'toggle', label: 'Show numbers' },
+    { k: 'goalPercent', t: 'toggle', label: 'Show percent' },
+  ] },
+  { tab: 'content', title: 'Poll', types: ['poll'], fields: [
+    { k: 'pollHideIdle', t: 'toggle', label: 'Hide when no poll', hint: 'Appears when you start a poll in Live tools, hides 60 s after it ends' },
+    { k: 'pollHint', t: 'toggle', label: 'Show “Type !vote 1–3”' },
   ] },
   { tab: 'content', title: 'Game events', types: ['eggs'], fields: [
     { k: 'eggsEvents', t: 'toggle', label: 'Show events', show: (s) => s.eggsLayout !== 'events', hint: 'Tidal Surge, Butterfly Bloom, Slick Rick … from the Discord feed' },
@@ -342,6 +379,11 @@ function control(f) {
     case 'seg':
       return h('div', { class: 'seg full', role: 'group', 'aria-label': f.label }, f.options.map(([val, label]) =>
         h('button', { type: 'button', class: val === v ? 'on' : '', onclick: () => set(f.k, val, { rebuild: true }) }, label)));
+    case 'number': {
+      const i = h('input', { class: 'input', type: 'number', min: f.min, max: f.max, step: 1, value: v, 'aria-label': f.label });
+      i.addEventListener('input', () => { const n = Math.round(Number(i.value)); if (Number.isFinite(n) && n >= (f.min ?? 0) && n <= (f.max ?? Infinity)) set(f.k, n); });
+      return i;
+    }
     case 'text': {
       const i = h('input', { class: 'input', type: 'text', value: v, placeholder: f.placeholder || '', maxlength: 500, 'aria-label': f.label });
       i.addEventListener('input', () => set(f.k, i.value));
@@ -470,7 +512,7 @@ function renderConfig() {
 
 function renderWidgetPicker() {
   $('#widget-select').replaceChildren(...widgets.map((w) => {
-    const o = h('option', { value: w.id }, `${w.type === 'chat' ? '💬' : w.type === 'eggs' ? '🥚' : '📊'}  ${w.name}`);
+    const o = h('option', { value: w.id }, `${(TYPE_META[w.type] || TYPE_META.chat)[0]}  ${w.name}`);
     if (w.id === current?.id) o.selected = true;
     return o;
   }));
@@ -487,6 +529,7 @@ function selectWidget(id) {
   $('#chat-frame').hidden = current.type !== 'chat';
   $('#stats-frame').hidden = current.type !== 'stats';
   $('#eggs-frame').hidden = current.type !== 'eggs';
+  for (const t of ['alerts', 'goal', 'poll']) $(`#${t}-frame`).hidden = current.type !== t;
   saveState('');
   renderWidgetPicker();
   renderConfig();
@@ -494,10 +537,8 @@ function selectWidget(id) {
 }
 
 async function newWidget() {
-  const picker = h('div', { class: 'seg full', 'data-value': 'chat' },
-    h('button', { type: 'button', class: 'on', 'data-v': 'chat' }, ic('message'), 'Chat'),
-    h('button', { type: 'button', 'data-v': 'stats' }, ic('chart'), 'Stats'),
-    h('button', { type: 'button', 'data-v': 'eggs' }, ic('egg'), 'Eggs'));
+  const picker = h('div', { class: 'seg full type-grid', 'data-value': 'chat' },
+    Object.entries(TYPE_META).map(([t, [, ico, label]]) => h('button', { type: 'button', class: t === 'chat' ? 'on' : '', 'data-v': t }, ic(ico), label)));
   picker.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -510,8 +551,11 @@ async function newWidget() {
     const n = widgets.filter((x) => x.type === type).length + 1;
     // Eggs overlay starts from a dark "stock board" look (like an in-game notifier panel).
     const EGG_PRESET = { ...DEFAULTS, theme: 'midnight', font: 'Inter', fontSize: 15, fontWeight: 500, nameWeight: 800, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#4ade80', radius: 10, padding: 10, gap: 8, shadow: true, pageBgOpacity: 0 };
-    const startSettings = type === 'eggs' ? EGG_PRESET : current && current.type === type ? settings : {};
-    const w = await api('/api/widgets', { method: 'POST', body: JSON.stringify({ type, name: `${{ chat: 'Chat', stats: 'Stats', eggs: 'Eggs' }[type]} ${n}`, settings: startSettings }) });
+    const ALERT_PRESET = { ...DEFAULTS, theme: 'midnight', font: 'Inter', fontSize: 17, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 94, accent: '#a78bfa', radius: 14, shadow: true, pageBgOpacity: 0, eggsPopup: 8, eggsAlertStyle: 'card', eggsAlertPos: 'top', animation: 'pop' };
+    const PANEL_PRESET = { ...DEFAULTS, theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 };
+    const PRESETS = { eggs: EGG_PRESET, alerts: ALERT_PRESET, goal: PANEL_PRESET, poll: PANEL_PRESET };
+    const startSettings = PRESETS[type] || (current && current.type === type ? settings : {});
+    const w = await api('/api/widgets', { method: 'POST', body: JSON.stringify({ type, name: `${TYPE_META[type][2]} ${n}`, settings: startSettings }) });
     widgets.push(w);
     selectWidget(w.id);
     toast('Widget created');
@@ -559,6 +603,14 @@ const chatView = new ChatView($('#chat-preview'), settings);
 const statsView = new StatsView($('#stats-preview'), settings);
 const eggsView = new EggsView($('#eggs-preview'), settings);
 eggsView.preview = true; // popup mode would hide the Studio preview
+const alertsView = new AlertsView($('#alerts-preview'), settings);
+alertsView.preview = true;
+const goalView = new GoalView($('#goal-preview'), settings);
+const pollView = new PollView($('#poll-preview'), settings);
+pollView.preview = true;
+let alertDemo = null;
+let livePollTimer = null;
+async function loadLivePoll() { try { const r = await api('/api/tools'); pollView.setPoll(r.poll || demoPoll()); } catch { /* keep */ } }
 /** OBS size for the eggs widget (spotlight/events depend on stream orientation). */
 const eggsSize = (s) => ({
   list: '420 × 700', board: '1000 × 1000', grouped: '1200 × 700',
@@ -576,12 +628,18 @@ function refreshPreview() {
   chatView.setSettings({ ...settings });
   statsView.setSettings({ ...settings });
   eggsView.setSettings({ ...settings });
-  if (feedMode === 'live') statsView.setState(liveState || {});
+  alertsView.setSettings({ ...settings });
+  goalView.setSettings({ ...settings });
+  pollView.setSettings({ ...settings });
+  if (feedMode === 'live') { statsView.setState(liveState || {}); goalView.setState(liveState || {}); }
   const url = current ? widgetUrl(current) : '';
   $('#url').value = url;
   $('#open').href = url || '#';
   $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
-    : current?.type === 'eggs' ? eggsSize(settings) : '400 × 700';
+    : current?.type === 'eggs' ? eggsSize(settings)
+      : current?.type === 'alerts' ? (settings.eggsAlertStyle === 'big' ? '900 × 500' : '900 × 260')
+        : current?.type === 'goal' ? '700 × 120' : current?.type === 'poll' ? '520 × 360' : '400 × 700';
+  for (const [t, size] of [['alerts', '900 × 260'], ['goal', '700 × 120'], ['poll', '520 × 360']]) $(`#${t}-frame`).dataset.size = `${t === 'alerts' && settings.eggsAlertStyle === 'big' ? '900 × 500' : size} · OBS size`;
   $('#eggs-frame').dataset.size = `${eggsSize(settings)} · OBS size`;
   $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list' && settings.eggsOrient !== 'vertical');
 }
@@ -593,6 +651,10 @@ function setFeed(mode) {
   chatView.clear();
   eggDemo?.stop();
   clearInterval(eggLiveTimer);
+  alertDemo?.stop();
+  clearInterval(livePollTimer);
+  if (mode === 'demo') { alertDemo = startAlertDemo((m) => alertsView.add(m), 5000); goalView.setState(demoGoalState()); pollView.setPoll(demoPoll()); }
+  else { goalView.setState(liveState || {}); loadLivePoll(); livePollTimer = setInterval(loadLivePoll, 3000); }
   if (mode === 'demo') eggsView.setSeen([], false);
   if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list), 6000, (list) => eggsView.setEvents(list));
   else { loadLiveEggs(); eggLiveTimer = setInterval(loadLiveEggs, 10_000); }
@@ -676,7 +738,7 @@ function renderOverview() {
     h('div', { class: 'card-head' }, h('h3', {}, 'Your widgets'), h('span', { class: 'sub' }, 'Paste these into OBS'),
       h('div', { class: 'actions' }, h('a', { class: 'btn sm', href: '#studio' }, ic('palette'), 'Studio'))),
     h('ul', { class: 'wlist' }, widgets.map((w) => h('li', { class: 'wrow' },
-      h('div', { class: 'wicon', html: icon(w.type === 'chat' ? 'message' : w.type === 'eggs' ? 'egg' : 'chart') }),
+      h('div', { class: 'wicon', html: icon((TYPE_META[w.type] || TYPE_META.chat)[1]) }),
       h('div', { class: 'meta' }, h('b', {}, w.name), h('code', {}, widgetUrl(w))),
       h('div', { class: 'actions' },
         h('button', { class: 'btn sm', title: 'Copy URL', onclick: () => copyText(widgetUrl(w)) }, ic('copy'), 'Copy'),
@@ -831,11 +893,13 @@ function renderConnections() {
         h('div', {}, h('span', {}, 'Status'), h('b', {}, st.live ? 'Live' : 'Offline')),
         h('div', {}, h('span', {}, 'Viewers'), h('b', {}, st.live ? fmtN(st.viewers) : '—')),
         h('div', {}, h('span', {}, p === 'youtube' || kickSubs ? 'Subscribers' : 'Followers'), h('b', {}, fmtN(p === 'youtube' || kickSubs ? st.subscribers : st.followers)))));
-      if (p === 'youtube' && st.subscribersMode === 'live' && st.subscribersConfirmed != null) {
+      if (p === 'youtube' && st.subscribersMode === 'exact') {
         body.append(h('div', { class: 'notice ok' }, ic('users'), h('div', {},
-          `Live subscribers ≈ ${fmtN(st.subscribers)} · confirmed ${fmtN(st.subscribersConfirmed)} (YouTube Analytics is 2–3 days behind, the gap is estimated from your daily growth).`)));
-      }
-      if (p === 'youtube' && st.connected && st.subscribers != null && !st.subscribersExact) {
+          `Exact subscriber count from YouTube Analytics (no estimate). YouTube adds new subscribers there 2–3 days late.`)));
+      } else if (p === 'youtube' && st.connected && st.subscribers != null && st.subscribersConfirmed != null) {
+        body.append(h('div', { class: 'notice info' }, ic('info'), h('div', {},
+          `Showing YouTube’s official count (rounded). The exact Analytics number (${fmtN(st.subscribersConfirmed)}) is a few days behind, so it isn’t shown.`)));
+      } else if (p === 'youtube' && st.connected && st.subscribers != null) {
         body.append(h('div', { class: 'notice info' }, ic('info'), h('div', {},
           'Showing YouTube’s rounded subscriber count. ', h('a', { href: '/auth/youtube' }, 'Reconnect YouTube'), ' once to show the exact number.')));
       }
@@ -1226,6 +1290,7 @@ function showPage(p) {
   if (page === 'connections') renderConnections();
   if (page === 'logs') renderLogs();
   if (page === 'eggs') renderEggs();
+  if (page === 'tools') renderTools();
   if (page === 'settings') renderSettings();
 }
 window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));
@@ -1239,6 +1304,150 @@ function renderUser() {
   if (me.user.avatar) av.append(h('img', { src: me.user.avatar, alt: '', referrerpolicy: 'no-referrer' }));
   else av.textContent = (me.user.name || '?')[0].toUpperCase();
 }
+
+// ═════════════════════════════════════════════════════════════════════
+//  Live tools: highlight chat on stream, polls, bot commands & timers, stream summary
+// ═════════════════════════════════════════════════════════════════════
+const tools = { draft: null, hours: 6, chatUl: null, pollBox: null, poll: null };
+const platIcon = (p) => h('span', { class: 'tplat', html: p === 'kick' ? ICONS.kick : ICONS.youtube });
+const hasType = (t) => widgets.some((w) => w.type === t);
+const needWidget = (t, what) => (hasType(t) ? null : h('div', { class: 'notice info' }, ic('info'), h('div', {},
+  `${what} show up through an `, h('b', {}, `${TYPE_META[t][2]} widget`), '. ', h('a', { href: '#studio', onclick: () => setTimeout(newWidget, 50) }, `Create one in Studio`), ' and add its URL to OBS.')));
+
+function renderToolChat() {
+  const ul = tools.chatUl;
+  if (!ul || page !== 'tools') return;
+  const list = liveHistory.filter((m) => m.kind !== 'highlight' && m.kind !== 'highlight-clear').slice(-40).reverse();
+  ul.replaceChildren(...(list.length ? list.map((m) => {
+    const text = (m.parts || []).map((p) => (p.type === 'emote' ? `:${p.name}:` : p.text || '')).join('') || m.eventText || '';
+    return h('li', { class: 'tmsg' + (m.kind && m.kind !== 'chat' ? ' ev' : '') }, platIcon(m.platform),
+      h('div', { class: 'ttxt' }, h('b', {}, m.author?.name || ''), m.amount ? h('span', { class: 'tag ok' }, m.amount) : null, h('span', {}, ` ${text}`)),
+      h('button', { type: 'button', class: 'btn sm', title: 'Show this message on stream (Alerts widget)', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try { await api('/api/tools/highlight', { method: 'POST', body: JSON.stringify({ id: m.id }) }); toast('Showing on stream'); } catch (err) { toast(err.message, 'err'); }
+        e.currentTarget.disabled = false;
+      } }, '⭐ Show'));
+  }) : [h('li', { class: 'empty' }, ic('message'), h('b', {}, 'No chat yet'), 'Messages from your live YouTube and Kick chat appear here.')]));
+}
+
+function pollCard(poll) {
+  tools.poll = poll;
+  const box = h('div', {});
+  if (poll && (poll.open || Date.now() - poll.endsAt < 10 * 60_000)) {
+    const left = Math.max(0, Math.ceil((poll.endsAt - Date.now()) / 1000));
+    const max = Math.max(...poll.options.map((o) => o.votes));
+    box.append(h('div', { class: 'tpoll' },
+      h('div', { class: 'tpq' }, h('b', {}, poll.question), h('span', { class: `tag ${poll.open ? 'live' : ''}` }, poll.open ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : 'Ended')),
+      poll.options.map((o, i) => {
+        const pct = poll.total ? Math.round((o.votes / poll.total) * 100) : 0;
+        return h('div', { class: 'tbar' + (!poll.open && o.votes === max && max > 0 ? ' win' : '') },
+          h('div', { class: 'tfill', style: `width:${pct}%` }), h('span', {}, `${i + 1}. ${o.text}`), h('b', {}, `${pct}% · ${o.votes}`));
+      }),
+      h('div', { class: 'row', style: 'justify-content:space-between;margin-top:8px' },
+        h('span', { class: 'muted tiny' }, `${poll.total} vote(s) · viewers type !vote 1–${poll.options.length}`),
+        poll.open
+          ? h('button', { type: 'button', class: 'btn sm danger', onclick: async () => { try { pollCard((await api('/api/tools/poll/end', { method: 'POST' })).poll); } catch (e) { toast(e.message, 'err'); } } }, 'End poll')
+          : h('button', { type: 'button', class: 'btn sm', onclick: async () => { try { await api('/api/tools/poll', { method: 'DELETE' }); pollCard(null); } catch (e) { toast(e.message, 'err'); } } }, 'New poll'))));
+  } else {
+    const q = h('input', { class: 'input', maxlength: 120, placeholder: 'Question, e.g. Which egg do we hunt next?' });
+    const opts = [1, 2, 3, 4].map((i) => h('input', { class: 'input', maxlength: 60, placeholder: i <= 2 ? `Option ${i}` : `Option ${i} (optional)` }));
+    const mins = h('select', { class: 'select' }, [[1, '1 min'], [2, '2 min'], [3, '3 min'], [5, '5 min'], [10, '10 min'], [15, '15 min']].map(([v, l]) => h('option', { value: v, selected: v === 2 ? true : undefined }, l)));
+    box.append(h('div', { class: 'tform' }, q, h('div', { class: 'tgrid2' }, opts), h('div', { class: 'row' }, h('span', { class: 'muted tiny' }, 'Duration'), mins,
+      h('button', { type: 'button', class: 'btn primary', onclick: async () => {
+        try {
+          const r = await api('/api/tools/poll', { method: 'POST', body: JSON.stringify({ question: q.value, options: opts.map((o) => o.value), minutes: Number(mins.value) }) });
+          toast('Poll started — viewers vote with !vote 1, !vote 2 …');
+          pollCard(r.poll);
+        } catch (e) { toast(e.message, 'err'); }
+      } }, 'Start poll'))));
+  }
+  tools.pollBox?.replaceChildren(box);
+}
+
+function commandsCard(cfg) {
+  const rows = h('div', { class: 'tlist' });
+  const timerRows = h('div', { class: 'tlist' });
+  const drawCmds = () => rows.replaceChildren(...cfg.commands.map((c, i) => h('div', { class: 'tcmd' },
+    h('input', { class: 'input', value: c.cmd, placeholder: '!discord', maxlength: 25, oninput: (e) => { c.cmd = e.target.value; } }),
+    h('input', { class: 'input', value: c.reply, placeholder: 'Join our Discord: discord.gg/… (use {user} for the name)', maxlength: 400, oninput: (e) => { c.reply = e.target.value; } }),
+    h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Remove', 'aria-label': 'Remove', onclick: () => { cfg.commands.splice(i, 1); drawCmds(); } }, ic('trash')))));
+  const drawTimers = () => timerRows.replaceChildren(...cfg.timers.map((t, i) => h('div', { class: 'tcmd' },
+    h('input', { class: 'input', value: t.text, placeholder: 'Follow the channel and type !socials 💜', maxlength: 400, oninput: (e) => { t.text = e.target.value; } }),
+    h('select', { class: 'select', onchange: (e) => { t.every = Number(e.target.value); } }, [5, 10, 15, 20, 30, 45, 60, 90, 120].map((v) => h('option', { value: v, selected: v === t.every ? true : undefined }, `every ${v} min`))),
+    h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Remove', 'aria-label': 'Remove', onclick: () => { cfg.timers.splice(i, 1); drawTimers(); } }, ic('trash')))));
+  drawCmds();
+  drawTimers();
+  const sw = (k, label) => h('label', { class: 'row', style: 'gap:8px' }, h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg[k] ? true : undefined, onchange: (e) => { cfg[k] = e.target.checked; } }), h('span')), label);
+  return h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('message'), h('h3', {}, 'Bot commands & timers'), h('div', { class: 'actions' }, sw('youtube', 'YouTube'), sw('kick', 'Kick'))),
+    h('p', { class: 'muted tiny', style: 'margin-top:0;margin-bottom:10px' }, 'Viewers type a command (e.g. !discord) and the OmniChat bot replies. Timers post a message every N minutes while you are live. YouTube allows about 60 bot messages a day (shared API quota); Kick has no limit. 20 s cooldown per command.'),
+    h('b', { class: 'tiny' }, 'Commands'), rows,
+    h('button', { type: 'button', class: 'btn sm', onclick: () => { if (cfg.commands.length >= 30) return; cfg.commands.push({ cmd: '!', reply: '', enabled: true }); drawCmds(); } }, ic('plus'), 'Add command'),
+    h('b', { class: 'tiny', style: 'display:block;margin-top:14px' }, 'Timers'), timerRows,
+    h('button', { type: 'button', class: 'btn sm', onclick: () => { if (cfg.timers.length >= 10) return; cfg.timers.push({ text: '', every: 15, enabled: true }); drawTimers(); } }, ic('plus'), 'Add timer'),
+    h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:14px' },
+      h('button', { type: 'button', class: 'btn primary', onclick: async () => {
+        try {
+          const r = await api('/api/tools/settings', { method: 'PUT', body: JSON.stringify(cfg) });
+          tools.draft = structuredClone(r.settings);
+          toast(`Saved ${r.settings.commands.length} command(s), ${r.settings.timers.length} timer(s)`);
+          renderTools();
+        } catch (e) { toast(e.message, 'err'); }
+      } }, 'Save')));
+}
+
+async function summaryCard() {
+  const body = h('div', {}, h('span', { class: 'muted tiny' }, 'Loading…'));
+  const sel = h('select', { class: 'select', style: 'width:auto', onchange: (e) => { tools.hours = Number(e.target.value); load(); } },
+    [[3, 'Last 3 h'], [6, 'Last 6 h'], [12, 'Last 12 h'], [24, 'Last 24 h'], [48, 'Last 48 h']].map(([v, l]) => h('option', { value: v, selected: v === tools.hours ? true : undefined }, l)));
+  async function load() {
+    let r;
+    try { r = await api(`/api/tools/summary?hours=${tools.hours}`); } catch (e) { body.replaceChildren(h('span', { class: 'muted tiny' }, e.message)); return; }
+    const tile = (label, val) => h('div', { class: 'tsum' }, h('b', {}, val), h('span', {}, label));
+    const peak = r.peak?.peak ? fmtN(r.peak.peak) : '—';
+    body.replaceChildren(...[
+      r.historyOff ? h('div', { class: 'notice info' }, ic('info'), h('div', {}, 'Chat history is off (Settings), so the summary is empty. Turn it on to see stats.')) : null,
+      h('div', { class: 'tsums' }, tile('Messages', fmtN(r.messages)), tile('Chatters', fmtN(r.chatters)), tile('Peak viewers', peak),
+        tile('Super Chats', fmtN(r.superchats.length)), tile('New members', fmtN(r.members)), tile('Gifts', fmtN(r.giftedMembers + r.kickGifts)),
+        tile('Kick subs', fmtN(r.kickSubs)), tile('Kick follows', fmtN(r.follows))),
+      h('div', { class: 'grid two', style: 'margin-top:12px' },
+        h('div', {}, h('b', { class: 'tiny' }, 'Top chatters'), r.topChatters.length
+          ? h('ol', { class: 'ttop' }, r.topChatters.map((c) => h('li', {}, platIcon(c.platform), h('span', {}, c.name), h('b', {}, fmtN(c.n)))))
+          : h('p', { class: 'muted tiny' }, 'No messages yet.')),
+        h('div', {}, h('b', { class: 'tiny' }, 'Super Chats'), r.superchats.length
+          ? h('ul', { class: 'ttop' }, r.superchats.slice(0, 10).map((x) => h('li', {}, h('span', { class: 'tag ok' }, x.amount || '—'), h('span', {}, `${x.author}${x.text ? ` — ${x.text}` : ''}`))))
+          : h('p', { class: 'muted tiny' }, 'None yet.')))].filter(Boolean));
+  }
+  load();
+  return h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('chart'), h('h3', {}, 'Stream summary'), h('div', { class: 'actions' }, sel)), body);
+}
+
+async function renderTools() {
+  const root = $('#page-tools');
+  let data;
+  try { data = await api('/api/tools'); } catch (e) { toast(e.message, 'err'); return; }
+  if (page !== 'tools') return;
+  tools.draft ||= structuredClone(data.settings);
+  tools.chatUl = h('ul', { class: 'tchat' });
+  tools.pollBox = h('div', {});
+  const chatCard = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('message'), h('h3', {}, 'Live chat'), h('span', { class: 'sub' }, '⭐ Show = big card on stream'),
+      h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn sm ghost', onclick: async () => { try { await api('/api/tools/highlight', { method: 'DELETE' }); toast('Highlight hidden'); } catch (e) { toast(e.message, 'err'); } } }, 'Hide highlight'))),
+    needWidget('alerts', 'Highlights'), tools.chatUl);
+  const pollWrap = h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('chart'), h('h3', {}, 'Chat poll'), h('span', { class: 'sub' }, 'YouTube + Kick · one vote per viewer')),
+    needWidget('poll', 'Polls'), tools.pollBox);
+  root.replaceChildren(h('div', { class: 'grid two' },
+    h('div', { class: 'grid', style: 'align-content:start' }, chatCard, pollWrap),
+    h('div', { class: 'grid', style: 'align-content:start' }, commandsCard(tools.draft), await summaryCard())));
+  renderToolChat();
+  pollCard(data.poll);
+}
+// keep the poll card fresh (votes + countdown) while the page is open
+setInterval(async () => {
+  if (page !== 'tools' || !tools.pollBox || document.activeElement?.closest('#page-tools .tform')) return;
+  if (!tools.poll?.open) return;
+  try { pollCard((await api('/api/tools')).poll); } catch { /* keep */ }
+}, 2500);
 
 // ── static wiring ──
 $('#widget-select').addEventListener('change', (e) => selectWidget(e.target.value));
@@ -1292,11 +1501,16 @@ async function boot() {
       liveState = st;
       renderStatus();
       updateOverview();
-      if (feedMode === 'live') statsView.setState(st);
+      if (feedMode === 'live') { statsView.setState(st); goalView.setState(st); }
       if (page === 'connections' && !document.activeElement?.closest('#page-connections textarea, #page-connections details')) renderConnections();
     },
     onHistory: (list) => { liveHistory = list; if (feedMode === 'live') chatView.setHistory(list); },
-    onChat: (m) => { liveHistory.push(m); if (liveHistory.length > 100) liveHistory.shift(); if (feedMode === 'live') chatView.add(m); },
+    onChat: (m) => {
+      if (m.kind === 'highlight' || m.kind === 'highlight-clear') { if (feedMode === 'live') alertsView.add(m); return; }
+      liveHistory.push(m); if (liveHistory.length > 100) liveHistory.shift();
+      if (feedMode === 'live') { chatView.add(m); alertsView.add(m); }
+      if (page === 'tools') renderToolChat();
+    },
     onDelete: (id) => { liveHistory = liveHistory.filter((m) => m.id !== id); if (feedMode === 'live') chatView.remove(id); },
     onLog: onLiveLog,
   });

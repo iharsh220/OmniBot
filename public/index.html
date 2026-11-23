@@ -22,6 +22,7 @@
     <div class="nav-label">Workspace</div>
     <a class="nav-item" data-page="overview" href="#overview"><span data-icon="home"></span>Overview<span class="dot-live" id="nav-live" hidden></span></a>
     <a class="nav-item" data-page="studio" href="#studio"><span data-icon="palette"></span>Studio<span class="count" id="nav-widgets">0</span></a>
+    <a class="nav-item" data-page="tools" href="#tools"><span data-icon="zap"></span>Live tools</a>
     <a class="nav-item" data-page="connections" href="#connections"><span data-icon="plug"></span>Connections</a>
     <a class="nav-item" data-page="eggs" href="#eggs"><span data-icon="egg"></span>Egg Bot</a>
     <a class="nav-item" data-page="logs" href="#logs"><span data-icon="logs"></span>Logs</a>
@@ -97,11 +98,15 @@
             <div class="frame chat-frame" id="chat-frame" data-size="400 × 700 · OBS size"><div id="chat-preview"></div></div>
             <div class="frame stats-frame" id="stats-frame" data-size="Stats widget" hidden><div id="stats-preview"></div></div>
             <div class="frame eggs-frame" id="eggs-frame" data-size="Eggs overlay" hidden><div id="eggs-preview"></div></div>
+            <div class="frame alerts-frame" id="alerts-frame" data-size="900 × 260 · OBS size" hidden><div id="alerts-preview"></div></div>
+            <div class="frame goal-frame" id="goal-frame" data-size="700 × 120 · OBS size" hidden><div id="goal-preview"></div></div>
+            <div class="frame poll-frame" id="poll-frame" data-size="520 × 360 · OBS size" hidden><div id="poll-preview"></div></div>
           </div>
         </div>
       </div>
     </section>
 
+    <section class="page" id="page-tools" hidden></section>
     <section class="page" id="page-connections" hidden></section>
     <section class="page" id="page-eggs" hidden></section>
     <section class="page" id="page-logs" hidden></section>

@@ -147,6 +147,7 @@ export class ChatView {
 
   passes(m) {
     const s = this.s;
+    if (m.kind === 'highlight' || m.kind === 'highlight-clear') return false; // shown by the Alerts widget
     if (s[m.platform] === false) return false;
     if (this.bots.has((m.author?.name || '').toLowerCase())) return false;
     if (s.hideCommands && (m.parts?.[0]?.text || '').trim().startsWith('!')) return false;

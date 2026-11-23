@@ -149,15 +149,17 @@ export async function webhookToEvents(type, payload, messageId) {
     }
     case 'channel.subscription.new':
     case 'channel.subscription.renewal':
-      out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'sub', author: { ...who(payload.subscriber), badges: [] }, parts: [],
+      out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'sub', alert: 'sub', months: payload.duration || 1, author: { ...who(payload.subscriber), badges: [] }, parts: [],
         eventText: type.endsWith('renewal') ? `Resubscribed${payload.duration > 1 ? ` (${payload.duration} months)` : ''}!` : 'Subscribed!' });
       break;
     case 'channel.subscription.gifts':
-      out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'sub', author: { ...who(payload.gifter), badges: [] }, parts: [],
+      out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'sub', alert: 'gift', count: payload.giftees?.length || 1, author: { ...who(payload.gifter), badges: [] }, parts: [],
         eventText: `Gifted ${payload.giftees?.length || 1} subs!` });
       break;
     case 'channel.followed':
       out.followersDelta = 1;
+      // also an event, so the Alerts widget (and chat, if "events" are shown) can say "new follower"
+      out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'follow', alert: 'follow', author: { ...who(payload.follower), badges: [] }, parts: [], eventText: 'Followed!' });
       break;
     case 'livestream.status.updated':
       out.statePatch = { live: !!payload.is_live, title: payload.title || null, _nextStatsAt: 0 };

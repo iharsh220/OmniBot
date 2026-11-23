@@ -7,6 +7,7 @@ import { eggStep } from './eggs.js';
 import { config } from './config.js';
 import { kickStep, kickDue, postKickChat, kickBotReady } from './kick.js';
 import { updateUser, getSystemBot } from './auth.js';
+import { processChats, timerPosts } from './tools.js';
 
 const PLATFORMS = ['youtube', 'kick'];
 export const blankPlatform = () => ({
@@ -85,9 +86,41 @@ export async function tick(user) {
     }
   }
 
+  // Live tools: poll votes + custom command replies (YouTube chat) and timers, posted by the shared bots.
+  try {
+    const yt = states.youtube;
+    const sharedBot = await getSystemBot();
+    const botTargets = {
+      youtube: !!user.accounts?.youtube && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
+      kick: !!user.accounts?.kick && !!states.kick.live && await kickBotReady(),
+    };
+    const ytChats = chats.filter((m) => m.platform === 'youtube');
+    const posts = [...(await processChats(uid, user, ytChats)), ...(await timerPosts(uid, user, botTargets))];
+    for (const p of posts) {
+      if (!botTargets[p.to]) continue;
+      try {
+        if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
+        else await postKickChat(user.accounts.kick.channelId, p.text);
+        logs.push({ level: 'info', source: 'bot', message: `${p.timer ? 'Timer' : p.cmd} → ${p.to}` });
+      } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `${p.to} chat post failed: ${e.message}` }); }
+    }
+  } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `Commands/timers: ${e.message}` }); }
+
+  // Stream session (for the summary): start time + peak viewers; resets after 30 min offline.
+  const anyLive = states.youtube.live || states.kick.live;
+  const viewersNow = (states.youtube.live ? states.youtube.viewers || 0 : 0) + (states.kick.live ? states.kick.viewers || 0 : 0);
+
   live = await db.update(`live/${uid}`, (L) => {
     for (const p of PLATFORMS) L[p] = states[p];
     L.eggs = eggState;
+    const S = L.session || {};
+    if (anyLive) {
+      if (!S.live && (!S.endedAt || Date.now() - S.endedAt > 30 * 60_000)) Object.assign(S, { startedAt: Date.now(), peak: 0, peakAt: null });
+      S.live = true;
+      S.endedAt = null;
+      if (viewersNow > (S.peak || 0)) { S.peak = viewersNow; S.peakAt = Date.now(); }
+    } else if (S.live) { S.live = false; S.endedAt = Date.now(); }
+    L.session = S;
     L._lockUntil = 0;
     L.updatedAt = Date.now();
     return L;

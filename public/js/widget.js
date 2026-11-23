@@ -1,13 +1,14 @@
 import { DEFAULTS, decodeSettings } from '/js/settings.js';
 import { ChatView, StatsView, EggsView } from '/js/render.js';
 import { connectLive, startDemo, startEggDemo } from '/js/feed.js';
+import { AlertsView, GoalView, PollView, startAlertDemo, demoPoll, demoGoalState } from '/js/live-views.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
 const id = (location.pathname.match(/^\/w\/([\w-]+)/) || [])[1];
 
 async function main() {
-  let type = ['stats', 'eggs'].includes(params.get('type')) ? params.get('type') : 'chat';
+  let type = ['stats', 'eggs', 'alerts', 'goal', 'poll'].includes(params.get('type')) ? params.get('type') : 'chat';
   let base = DEFAULTS;
   let version = null;
   if (id) {
@@ -21,7 +22,27 @@ async function main() {
   // URL query params (optional) override the saved settings.
   const settingsFor = (b) => decodeSettings(location.search, b);
   const s = settingsFor(base);
-  const view = type === 'stats' ? new StatsView(app, s) : type === 'eggs' ? new EggsView(app, s) : new ChatView(app, s);
+  const VIEWS = { stats: StatsView, eggs: EggsView, alerts: AlertsView, goal: GoalView, poll: PollView, chat: ChatView };
+  const view = new (VIEWS[type] || ChatView)(app, s);
+  const onSettings = ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings }));
+  const demoMode = !id || params.get('demo') === '1';
+
+  if (type === 'alerts') {
+    if (demoMode) { startAlertDemo((m) => view.add(m), 5000); return; }
+    // First poll returns recent history → never alert old things; only new events after that.
+    connectLive(`/api/w/${id}/poll`, { onHistory: () => {}, onChat: (m) => view.add(m), onSettings }, { v: version, interval: 3_000 });
+    return;
+  }
+  if (type === 'goal') {
+    if (demoMode) { view.setState(demoGoalState()); return; }
+    connectLive(`/api/w/${id}/poll`, { onState: (st) => view.setState(st), onSettings }, { v: version, interval: 15_000 });
+    return;
+  }
+  if (type === 'poll') {
+    if (demoMode) { view.setPoll(demoPoll()); return; }
+    connectLive(`/api/w/${id}/poll`, { onPoll: (p) => view.setPoll(p), onSettings }, { v: version, interval: 3_000 });
+    return;
+  }
   if (type === 'eggs') {
     view.fit = true; // OBS: everything always fits the browser source, whatever its resolution
     view.render();

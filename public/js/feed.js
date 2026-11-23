@@ -44,6 +44,7 @@ export function connectLive(url, handlers = {}, opts = {}) {
       if (d.seen) h.onSeen?.(d.seen);
       if (d.eggs) h.onEggs?.(d.eggs);
       if (d.eggEvents) h.onEggEvents?.(d.eggEvents);
+      if ('poll' in d) h.onPoll?.(d.poll);
       for (const l of d.logs || []) h.onLog?.(l);
       if (d.logCursor !== undefined) logCursor = d.logCursor;
     } catch {

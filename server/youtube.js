@@ -35,17 +35,17 @@ function normalise(item) {
   switch (s.type) {
     case 'textMessageEvent': {
       const t = s.textMessageDetails?.messageText ?? s.displayMessage;
-      if (isSaidHi(t)) return { ...base, kind: 'greeting', eventText: '👋 said hi', greeting: true };
+      if (isSaidHi(t)) return { ...base, kind: 'greeting', alert: 'greeting', eventText: '👋 said hi', greeting: true };
       return { ...base, parts: text(t) };
     }
-    case 'superChatEvent': return { ...base, kind: 'superchat', amount: s.superChatDetails?.amountDisplayString, eventText: 'Super Chat', parts: text(s.superChatDetails?.userComment) };
-    case 'superStickerEvent': return { ...base, kind: 'superchat', amount: s.superStickerDetails?.amountDisplayString, eventText: 'Super Sticker' };
-    case 'newSponsorEvent': return { ...base, kind: 'member', eventText: s.newSponsorDetails?.isUpgrade ? 'Upgraded membership!' : 'New member!' };
-    case 'memberMilestoneChatEvent': return { ...base, kind: 'member', eventText: `Member for ${s.memberMilestoneChatDetails?.memberMonth ?? '?'} months`, parts: text(s.memberMilestoneChatDetails?.userComment) };
-    case 'membershipGiftingEvent': return { ...base, kind: 'member', eventText: `Gifted ${s.membershipGiftingDetails?.giftMembershipsCount ?? ''} memberships` };
+    case 'superChatEvent': return { ...base, kind: 'superchat', alert: 'superchat', amount: s.superChatDetails?.amountDisplayString, eventText: 'Super Chat', parts: text(s.superChatDetails?.userComment) };
+    case 'superStickerEvent': return { ...base, kind: 'superchat', alert: 'sticker', amount: s.superStickerDetails?.amountDisplayString, eventText: 'Super Sticker' };
+    case 'newSponsorEvent': return { ...base, kind: 'member', alert: 'member', eventText: s.newSponsorDetails?.isUpgrade ? 'Upgraded membership!' : 'New member!' };
+    case 'memberMilestoneChatEvent': return { ...base, kind: 'member', alert: 'milestone', eventText: `Member for ${s.memberMilestoneChatDetails?.memberMonth ?? '?'} months`, parts: text(s.memberMilestoneChatDetails?.userComment) };
+    case 'membershipGiftingEvent': return { ...base, kind: 'member', alert: 'gift', eventText: `Gifted ${s.membershipGiftingDetails?.giftMembershipsCount ?? ''} memberships` };
     case 'giftMembershipReceivedEvent': return null;
     default:
-      if (isSaidHi(s.displayMessage) || /said hi/i.test(String(s.type || ''))) return { ...base, kind: 'greeting', eventText: '👋 said hi', greeting: true };
+      if (isSaidHi(s.displayMessage) || /said hi/i.test(String(s.type || ''))) return { ...base, kind: 'greeting', alert: 'greeting', eventText: '👋 said hi', greeting: true };
       return s.displayMessage ? { ...base, parts: text(s.displayMessage) } : null;
   }
 }
@@ -108,22 +108,6 @@ async function exactSubscribers(ctx, acc, now) {
     const [gained, lost] = j.rows?.[0] || [];
     if (Number.isFinite(gained) && Number.isFinite(lost)) st._exactSubs = gained - lost;
     st._exactError = null;
-
-    // Daily breakdown (last ~5 weeks): how far behind Analytics is + average daily growth.
-    const day = (d) => d.toISOString().slice(0, 10);
-    const dUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
-    dUrl.search = new URLSearchParams({
-      ids: 'channel==MINE', startDate: day(new Date(now - 35 * 86_400_000)), endDate: day(new Date(now)),
-      metrics: 'subscribersGained,subscribersLost', dimensions: 'day', sort: 'day',
-    });
-    const dr = await tfetch(dUrl, { headers: { Authorization: `Bearer ${token}` } });
-    const dj = await dr.json().catch(() => ({}));
-    const rows = (dr.ok && dj.rows) || [];
-    if (rows.length) {
-      const recent = rows.slice(-28);
-      st._avgDaily = recent.reduce((sum, r) => sum + (r[1] - r[2]), 0) / recent.length;
-      st._dataUntil = Date.parse(`${rows[rows.length - 1][0]}T23:59:59Z`); // last day Analytics has
-    }
   } catch (e) {
     if (st._exactError !== e.message) ctx.logs.push({ level: 'warn', source: 'youtube', message: `Exact subscriber count unavailable: ${e.message}` });
     st._exactError = e.message;
@@ -132,29 +116,25 @@ async function exactSubscribers(ctx, acc, now) {
 }
 
 /**
- * Studio-like live count. Analytics' lifetime total is exact but 2–3 days old, so add the average
- * daily growth for the missing days. The Data API's rounded value (rounded DOWN to 3 significant
- * digits) bounds the truth: 27,800 means 27,800 … 27,899 — the estimate is clamped into that range.
+ * Subscriber count WITHOUT any estimate (owner's rule: never show a guessed number).
+ * - Analytics' lifetime total is exact. It is used when it is not behind YouTube's own count.
+ * - The Data API's count is rounded DOWN to 3 significant digits (27,867 → 27,800). If Analytics is
+ *   older than that (it lags 2–3 days), the official rounded number is shown instead.
  */
-function liveSubscriberEstimate(st, now) {
-  const floor = st._roundedSubs;
-  const confirmed = st._exactSubs;
-  st.subscribersConfirmed = confirmed ?? null; // exact, as of the last Analytics day
-  if (confirmed == null) {
-    st.subscribers = floor ?? null;
+function subscriberCount(st) {
+  const rounded = st._roundedSubs;
+  const exact = st._exactSubs;
+  st.subscribersConfirmed = exact ?? null;
+  delete st._avgDaily; delete st._dataUntil; // left over from the old estimate
+  if (exact != null && (rounded == null || exact >= rounded)) {
+    st.subscribers = exact;
+    st.subscribersMode = 'exact';
+    st.subscribersExact = true;
+  } else {
+    st.subscribers = rounded ?? null;
     st.subscribersMode = 'rounded';
     st.subscribersExact = false;
-    return;
   }
-  let est = confirmed;
-  if (Number.isFinite(st._avgDaily) && st._dataUntil) est += st._avgDaily * Math.max(0, (now - st._dataUntil) / 86_400_000);
-  if (floor != null && floor > 0) {
-    const step = 10 ** Math.max(0, String(Math.floor(floor)).length - 3); // 27,800 → 100
-    est = Math.min(Math.max(est, floor), floor + step - 1);
-  }
-  st.subscribers = Math.round(est);
-  st.subscribersMode = 'live';
-  st.subscribersExact = true;
 }
 
 export const youtubeDue = (st, now) => now >= (st._nextSubsAt || 0)
@@ -177,7 +157,7 @@ export async function youtubeStep(ctx, acc) {
         Object.assign(st, { channelName: ch.snippet.title, avatar: ch.snippet.thumbnails?.default?.url || st.avatar });
       }
       await exactSubscribers(ctx, acc, now);
-      liveSubscriberEstimate(st, now);
+      subscriberCount(st);
     }
     if (!st.live) {
       if (now < (st._nextLiveCheckAt || 0)) return;

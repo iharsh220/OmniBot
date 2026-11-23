@@ -109,7 +109,7 @@
 .has-stroke .msg-avatar { text-shadow: none; }
 
 /* Highlight events (works across themes) */
-.kind-superchat { --evt: #ffb300; } .kind-member { --evt: #2ecc71; } .kind-sub { --evt: #53fc18; } .kind-greeting { --evt: #38bdf8; }
+.kind-superchat { --evt: #ffb300; } .kind-member { --evt: #2ecc71; } .kind-sub { --evt: #53fc18; } .kind-greeting { --evt: #38bdf8; } .kind-follow { --evt: #38bdf8; }
 
 /* ════════ THEMES ════════ */
 /* Glass */
@@ -543,3 +543,55 @@
 .alert-big .egg-alert .egg-evtop, .alert-big .egg-alert .egg-evsub { justify-content: center; flex-wrap: wrap; }
 .alert-big .egg-alert .egg-hlive { margin-left: 0; }
 .alert-big .egg-alert .egg-evbadge { align-self: center; }
+
+/* ═════════ Alerts widget (Super Chat, members, Kick subs/follows, highlights) — reuses the egg alert card ═════════ */
+.ow-alerts .egg-hero { align-items: center; }
+.ow-alerts .egg-himg.oc-avatar { border-radius: 50%; padding: 0; overflow: hidden; width: 4.2em; height: 4.2em; box-shadow: 0 0 0 3px var(--rc), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); }
+.ow-alerts .egg-himg.oc-avatar img { object-fit: cover; filter: none; }
+.ow-alerts .egg-himg:not(.has-img) { font-size: 2.2em; width: 1.9em; height: 1.9em; }
+.ow-alerts .egg-hkicker { gap: .45em; }
+.oc-plat { display: inline-flex; width: 1.25em; height: 1.25em; } .oc-plat svg { width: 100%; height: 100%; }
+.oc-plat:empty { display: none; }
+.oc-amsg { font-size: 1.05em; line-height: 1.3; margin-top: .15em; opacity: .95; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.oc-emote { height: 1.5em; vertical-align: middle; margin: 0 .1em; }
+.oc-highlight .egg-htitle { font-size: 1.3em; }
+.oc-highlight .oc-amsg { font-size: 1.35em; font-weight: 600; -webkit-line-clamp: 4; }
+.alert-big .ow-alerts .egg-himg.oc-avatar, .alert-big.ow-alerts .egg-himg.oc-avatar { width: 6em; height: 6em; }
+.alert-toast.ow-alerts .oc-amsg { -webkit-line-clamp: 1; font-size: .9em; }
+.alert-big.ow-alerts .oc-amsg { text-align: center; }
+
+/* ═════════ Goal widget ═════════ */
+.ow-goal { padding: 10px; }
+.oc-goal { background: var(--msg-bg); color: var(--text); border-radius: var(--radius); padding: calc(var(--pad) * 1.1) calc(var(--pad) * 1.4); }
+.has-shadow .oc-goal, .has-shadow .oc-poll { box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.has-border .oc-goal, .has-border .oc-poll { outline: var(--border-w) solid var(--border-c); outline-offset: calc(var(--border-w) * -1); }
+.oc-ghead { display: flex; justify-content: space-between; align-items: baseline; gap: 1em; margin-bottom: .5em; }
+.oc-gtitle { font-weight: var(--name-w, 800); font-size: 1.1em; }
+.oc-gnums { font-weight: 800; font-variant-numeric: tabular-nums; opacity: .9; }
+.oc-gbar { position: relative; height: 1.9em; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.oc-gfill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; transition: width 1.2s cubic-bezier(.2,.9,.25,1);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #fff 0%), var(--accent)); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent); }
+.oc-gfill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); background-size: 200% 100%; animation: oc-shine 2.4s linear infinite; border-radius: inherit; }
+@keyframes oc-shine { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.oc-gpct { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 900; font-size: .85em; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.oc-goal.done .oc-gfill { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.goal-slim .oc-gbar { height: .7em; }
+
+/* ═════════ Poll widget ═════════ */
+.ow-poll { padding: 10px; }
+.oc-poll { background: var(--msg-bg); color: var(--text); border-radius: var(--radius); padding: calc(var(--pad) * 1.2) calc(var(--pad) * 1.4); display: flex; flex-direction: column; gap: .5em;
+  animation: var(--enter, ow-pop) .45s cubic-bezier(.2,.9,.25,1.05) both; }
+.oc-phead { display: flex; justify-content: space-between; gap: 1em; align-items: baseline; margin-bottom: .15em; }
+.oc-pq { font-weight: var(--name-w, 800); font-size: 1.2em; line-height: 1.2; }
+.oc-ptime { flex: 0 0 auto; font-weight: 900; font-variant-numeric: tabular-nums; padding: .2em .65em; border-radius: 999px; background: var(--accent); color: #0b0b12; font-size: .85em; }
+.oc-poll.ended .oc-ptime { background: color-mix(in srgb, var(--text) 25%, transparent); color: var(--text); }
+.oc-popt { position: relative; display: flex; align-items: center; gap: .6em; padding: .5em .7em; border-radius: calc(var(--radius) * .7); overflow: hidden;
+  background: color-mix(in srgb, var(--text) 9%, transparent); }
+.oc-pfill { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 38%, transparent); transition: width .8s cubic-bezier(.2,.9,.25,1); }
+.oc-popt > :not(.oc-pfill) { position: relative; }
+.oc-pnum { width: 1.6em; height: 1.6em; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #0b0b12; font-weight: 900; font-size: .85em; flex: 0 0 auto; }
+.oc-ptext { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-pvotes { font-weight: 800; font-variant-numeric: tabular-nums; opacity: .9; font-size: .9em; }
+.oc-popt.win { box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 50%, transparent); }
+.oc-popt.win .oc-ptext::after { content: '  🏆'; }
+.oc-pfoot { display: flex; justify-content: space-between; gap: 1em; font-size: .8em; opacity: .75; margin-top: .1em; }
