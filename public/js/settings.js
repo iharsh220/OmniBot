@@ -57,7 +57,12 @@ export const DEFAULTS = {
   eggsEvents: true, // show game events (Tidal Surge, Butterfly Bloom, Slick Rick …)
   eggsEventsCount: 3, // how many events
   eggsEventDetails: true, // event summary + possible eggs / what it sells
-  eggsPopup: 0, // spotlight/events: 0 = always visible, else pop up for X seconds on each new spawn/event
+  eggsAlertStyle: 'card', // alert look: card | banner | toast | neon | glass | minimal | big
+  eggsAlertPos: 'top', // where the alert sits in the OBS source: top | center | bottom
+  eggsEggLabel: '{rarity} egg spawned', // alert/hero kicker ({rarity} = Secret, Eternal …)
+  eggsEventLabel: '⚡ EVENT', // tag on event alerts
+  eggsFit: true, // OBS: scale (and re-flow columns) so the whole overlay fits any resolution
+  eggsPopup: 0, // alert: seconds each new egg/event stays (0 = latest always visible) · spotlight/events: pop up for X s
   eggsCount: 12, // how many eggs to show (list / grouped)
   eggsTiles: 40, // board: max tiles per rarity
   eggsLatest: true, // big card for the newest egg
@@ -155,8 +160,10 @@ const ENUMS = {
   timeFormat: ['24h', '12h'],
   statsHeader: ['both', 'icon', 'name', 'none'],
   statsAlign: ['left', 'center'],
-  eggsLayout: ['board', 'list', 'grouped', 'spotlight', 'events'],
+  eggsLayout: ['board', 'list', 'grouped', 'spotlight', 'events', 'alert'],
   eggsOrient: ['horizontal', 'vertical'],
+  eggsAlertStyle: ['card', 'banner', 'toast', 'neon', 'glass', 'minimal', 'big'],
+  eggsAlertPos: ['top', 'center', 'bottom'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
@@ -165,7 +172,7 @@ const RANGES = {
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
   eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300],
 };
-const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40 };
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24 };
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;
@@ -232,7 +239,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `speed-${s.animSpeed}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
-    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, `alert-${s.eggsAlertStyle}`, `alert-pos-${s.eggsAlertPos}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,

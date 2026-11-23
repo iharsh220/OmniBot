@@ -22,6 +22,13 @@ async function main() {
   const settingsFor = (b) => decodeSettings(location.search, b);
   const s = settingsFor(base);
   const view = type === 'stats' ? new StatsView(app, s) : type === 'eggs' ? new EggsView(app, s) : new ChatView(app, s);
+  if (type === 'eggs') {
+    view.fit = true; // OBS: everything always fits the browser source, whatever its resolution
+    view.render();
+    let rt = null;
+    addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => view.fitToScreen(), 100); });
+    document.fonts?.ready.then(() => view.fitToScreen());
+  }
 
   if (type === 'eggs') {
     if (!id || params.get('demo') === '1') { startEggDemo((list) => view.setItems(list), 6000, (list) => view.setEvents(list)); return; }

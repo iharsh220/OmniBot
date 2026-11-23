@@ -368,6 +368,9 @@
 @keyframes egg-pulse { 50% { box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 80%, transparent); } }
 
 .egg-tiles { display: grid; grid-template-columns: repeat(var(--egg-cols, 4), minmax(0, 1fr)); gap: calc(var(--gap) * .8); }
+/* Fit to screen: at least the chosen columns, more when the window is wide */
+.egg-fit .egg-tiles { grid-template-columns: repeat(auto-fill, minmax(max(15em, calc(100% / (var(--egg-cols, 4) + 2))), 1fr)); }
+.egg-fit.eggs-grouped .egg-groups { grid-template-columns: repeat(auto-fill, minmax(max(18em, calc(100% / (var(--egg-cols, 3) + 1))), 1fr)); }
 .egg-tile { display: flex; align-items: center; gap: .55em; min-width: 0; padding: .45em .5em; border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); border: 1px solid rgba(255,255,255,.08);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
@@ -437,7 +440,7 @@
 .eggs-spotlight.eggs-horizontal .egg-spot { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); }
 .eggs-spotlight.eggs-horizontal .egg-spot > :only-child { grid-column: 1 / -1; }
 .eggs-vertical .egg-spot { grid-template-columns: minmax(0, 1fr); }
-.eggs-events.eggs-horizontal .egg-evlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.eggs-events.eggs-horizontal .egg-evlist, .eggs-board .egg-evlist, .eggs-list .egg-evlist, .eggs-grouped .egg-evlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 .egg-hero { --rc: var(--accent); position: relative; overflow: hidden; display: flex; align-items: center; gap: 1em; min-width: 0;
   background: var(--msg-bg); color: var(--text); border-radius: calc(var(--radius) + 4px); padding: calc(var(--pad) * 1.3) calc(var(--pad) * 1.5);
   border: 1.5px solid color-mix(in srgb, var(--rc) 55%, transparent); }
@@ -466,8 +469,77 @@
 .eggs-vertical .egg-hkicker, .eggs-vertical .egg-hmeta, .eggs-vertical .egg-hwhen { justify-content: center; }
 .eggs-vertical .egg-hlive { margin-left: 0; }
 .eggs-vertical .egg-htitle { white-space: normal; }
+/* ── Eggs: Alert (one new egg / event at a time) ── */
+.egg-alert { display: block; }
+/* entry = the widget's Animation + Speed settings (same 15 as chat); exit = fade + slide out */
+.egg-alert > * { --dur: calc(var(--base) * var(--k)); animation: var(--enter) var(--dur) var(--ease) both; }
+.egg-alert > .enter { animation: var(--enter) var(--dur) var(--ease) both, egg-glow 1.8s ease .3s 2; }
+.egg-alert.leaving > * { animation: egg-alert-out .42s ease forwards; }
+@keyframes egg-alert-out { to { opacity: 0; transform: translateY(-14px) scale(.96); filter: blur(2px); } }
+/* position inside the OBS source */
+.ow-eggs.eggs-alert { display: flex; flex-direction: column; }
+.ow-eggs.eggs-alert.alert-pos-center { justify-content: center; }
+.ow-eggs.eggs-alert.alert-pos-bottom { justify-content: flex-end; }
+.egg-alert-ev { background: linear-gradient(90deg, color-mix(in srgb, var(--ec) 24%, transparent), transparent 75%), var(--msg-bg);
+  color: var(--text); border-radius: calc(var(--radius) + 4px); padding: calc(var(--pad) * 1.2) calc(var(--pad) * 1.4); border-width: 1.5px; }
+.has-shadow .egg-alert-ev { box-shadow: 0 10px 30px rgba(0,0,0,.32); }
+.egg-alert-ev .egg-evicon { width: 4.2em; height: 4.2em; }
+.egg-alert-ev .egg-evicon:not(.has-img) { font-size: 2.4em; width: 1.8em; height: 1.8em; }
+.egg-alert-ev .egg-evname { font-size: 1.6em; }
+.egg-alert-ev .egg-evtop[data-tag=""]::before { display: none; }
+.egg-alert-ev .egg-evtop::before { content: attr(data-tag); order: -1; align-self: center; font-size: .62em; font-weight: 900; letter-spacing: .1em; padding: .35em .6em; border-radius: 999px; background: var(--ec); color: #0b0b12; }
+.eggs-vertical .egg-alert-ev { flex-direction: column; text-align: center; }
+.eggs-vertical .egg-alert-ev .egg-evtop, .eggs-vertical .egg-alert-ev .egg-evsub { justify-content: center; flex-wrap: wrap; }
+.eggs-vertical .egg-alert-ev .egg-evname { white-space: normal; }
+.eggs-vertical .egg-alert-ev .egg-evbadge { align-self: center; }
 /* themes */
 .theme-neon .egg-hero, .theme-neon .egg-event { box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 50%, transparent); }
 .theme-glass .egg-hero, .theme-frost .egg-hero { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 .theme-sticker .egg-hero, .theme-comic .egg-hero, .theme-sticker .egg-event, .theme-comic .egg-event { border: 3px solid #111; }
 .theme-pixel .egg-hero, .theme-retro .egg-hero, .theme-pixel .egg-event, .theme-retro .egg-event { border-radius: 0; }
+
+/* ── Alert looks (Studio → Layout → Alert look → Style). Each applies to the egg card and the event card. ── */
+/* Banner: slim full-width bar with a coloured edge */
+.alert-banner .egg-alert > * { border-radius: 8px; border: 0; border-left: 6px solid var(--rc, var(--ec)); padding: .55em 1em; gap: .8em; }
+.alert-banner .egg-alert > .egg-event { border-left-color: var(--ec); }
+.alert-banner .egg-alert .egg-himg, .alert-banner .egg-alert .egg-evicon { width: 2.8em; height: 2.8em; }
+.alert-banner .egg-alert .egg-himg:not(.has-img), .alert-banner .egg-alert .egg-evicon:not(.has-img) { font-size: 1.6em; width: 1.7em; height: 1.7em; }
+.alert-banner .egg-alert .egg-htitle { font-size: 1.35em; }
+.alert-banner .egg-alert .egg-evname { font-size: 1.25em; }
+.alert-banner .egg-alert .egg-evnote, .alert-banner .egg-alert .egg-hwhen { display: none; }
+/* Toast: compact pill, sized to its content */
+.alert-toast .egg-alert { display: flex; flex-direction: row; justify-content: center; align-items: center; }
+.alert-toast .egg-alert > * { display: inline-flex; width: auto; max-width: 100%; border-radius: 999px; padding: .4em 1.2em .4em .45em; gap: .65em; }
+.alert-toast .egg-alert .egg-himg, .alert-toast .egg-alert .egg-evicon { width: 2.6em; height: 2.6em; border-radius: 50%; }
+.alert-toast .egg-alert .egg-himg:not(.has-img), .alert-toast .egg-alert .egg-evicon:not(.has-img) { font-size: 1.4em; width: 1.8em; height: 1.8em; }
+.alert-toast .egg-alert .egg-htitle { font-size: 1.15em; }
+.alert-toast .egg-alert .egg-evname { font-size: 1.1em; }
+.alert-toast .egg-alert .egg-hmeta > :not(:first-child), .alert-toast .egg-alert .egg-hwhen, .alert-toast .egg-alert .egg-evnote, .alert-toast .egg-alert .egg-evsec, .alert-toast .egg-alert .egg-evsub .egg-ago { display: none; }
+.alert-toast .egg-alert .egg-hlive { margin-left: .4em; }
+/* Neon: dark glass with a glowing outline and glowing text */
+.alert-neon .egg-alert > * { background: rgba(6, 6, 14, .82); border: 2px solid var(--rc, var(--ec));
+  box-shadow: 0 0 12px var(--rc, var(--ec)), inset 0 0 18px color-mix(in srgb, var(--rc, var(--ec)) 35%, transparent); animation-name: var(--enter), egg-neon; animation-duration: var(--dur), 2.4s; animation-iteration-count: 1, infinite; animation-timing-function: var(--ease), ease-in-out; animation-fill-mode: both, none; }
+.alert-neon .egg-alert > .egg-event { border-color: var(--ec); box-shadow: 0 0 12px var(--ec), inset 0 0 18px color-mix(in srgb, var(--ec) 35%, transparent); }
+.alert-neon .egg-alert .egg-htitle, .alert-neon .egg-alert .egg-evname { text-shadow: 0 0 6px var(--rc, var(--ec)), 0 0 18px var(--rc, var(--ec)); }
+.alert-neon .egg-alert .egg-hero::before { display: none; }
+@keyframes egg-neon { 50% { box-shadow: 0 0 24px var(--rc, var(--ec)), inset 0 0 26px color-mix(in srgb, var(--rc, var(--ec)) 45%, transparent); } }
+/* Glass: frosted, light */
+.alert-glass .egg-alert > * { background: rgba(255,255,255,.12); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,.28); box-shadow: 0 12px 36px rgba(0,0,0,.28); }
+.alert-glass .egg-alert .egg-hero::before { opacity: .55; }
+/* Minimal: no box at all, just text + icon with a strong outline (clean streams) */
+.alert-minimal .egg-alert > * { background: none !important; border: 0 !important; box-shadow: none !important; padding: .2em 0;
+  text-shadow: 0 0 3px rgba(0,0,0,.95), 0 2px 6px rgba(0,0,0,.9); }
+.alert-minimal .egg-alert .egg-hero::before { display: none; }
+.alert-minimal .egg-alert .egg-himg, .alert-minimal .egg-alert .egg-evicon { background: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.8)); }
+/* Big: centred, large picture and title (also on horizontal streams) */
+.alert-big .egg-alert > * { flex-direction: column; text-align: center; padding: calc(var(--pad) * 2) calc(var(--pad) * 2); gap: .6em; }
+.alert-big .egg-alert .egg-hero::before { background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--rc) 34%, transparent), transparent 65%); }
+.alert-big .egg-alert .egg-himg, .alert-big .egg-alert .egg-evicon { width: 7em; height: 7em; }
+.alert-big .egg-alert .egg-himg:not(.has-img), .alert-big .egg-alert .egg-evicon:not(.has-img) { font-size: 4em; width: 1.8em; height: 1.8em; }
+.alert-big .egg-alert .egg-htitle { font-size: 2.6em; white-space: normal; }
+.alert-big .egg-alert .egg-evname { font-size: 2.2em; white-space: normal; }
+.alert-big .egg-alert .egg-hkicker, .alert-big .egg-alert .egg-hmeta, .alert-big .egg-alert .egg-hwhen,
+.alert-big .egg-alert .egg-evtop, .alert-big .egg-alert .egg-evsub { justify-content: center; flex-wrap: wrap; }
+.alert-big .egg-alert .egg-hlive { margin-left: 0; }
+.alert-big .egg-alert .egg-evbadge { align-self: center; }

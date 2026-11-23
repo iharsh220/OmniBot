@@ -129,6 +129,12 @@ const SECTION_INFO = {
   filters: () => ['Platforms, commands, users, links, words & length'],
 };
 
+const ANIM_OPTIONS = [
+  ['slide', 'Slide in (from the side)'], ['slide-right', 'Slide in (other side)'], ['rise', 'Rise up'], ['drop', 'Drop down'],
+  ['fade', 'Fade'], ['pop', 'Pop'], ['zoom', 'Zoom in'], ['bounce', 'Bounce'], ['elastic', 'Elastic'], ['flip', '3D flip'],
+  ['swing', 'Swing'], ['blur', 'Blur in'], ['wipe', 'Wipe reveal'], ['glitch', 'Glitch'], ['none', 'None'],
+];
+const isAlert = (s) => s.eggsLayout === 'alert';
 const GROUPS = [
   { tab: 'style', title: 'Colors', fields: [
     { k: 'textColor', t: 'color', label: 'Text' },
@@ -167,11 +173,7 @@ const GROUPS = [
     { k: 'avatarSize', t: 'range', label: 'Size', min: 60, max: 200, unit: '%' },
   ] },
   { tab: 'layout', title: 'Motion', types: ['chat'], fields: [
-    { k: 'animation', t: 'select', label: 'Animation', options: [
-      ['slide', 'Slide in (from the side)'], ['slide-right', 'Slide in (other side)'], ['rise', 'Rise up'], ['drop', 'Drop down'],
-      ['fade', 'Fade'], ['pop', 'Pop'], ['zoom', 'Zoom in'], ['bounce', 'Bounce'], ['elastic', 'Elastic'], ['flip', '3D flip'],
-      ['swing', 'Swing'], ['blur', 'Blur in'], ['wipe', 'Wipe reveal'], ['glitch', 'Glitch'], ['none', 'None'],
-    ] },
+    { k: 'animation', t: 'select', label: 'Animation', options: ANIM_OPTIONS },
     { k: 'animSpeed', t: 'seg', label: 'Speed', options: [['fast', 'Fast'], ['normal', 'Normal'], ['slow', 'Slow']] },
     { k: 'direction', t: 'seg', label: 'New messages', options: [['bottom', 'Bottom'], ['top', 'Top']] },
   ] },
@@ -231,10 +233,12 @@ const GROUPS = [
     { k: 'statsNumSize', t: 'range', label: 'Number size', min: 60, max: 200, unit: '%' },
   ] },
   { tab: 'layout', title: 'Eggs layout', types: ['eggs'], fields: [
-    { k: 'eggsLayout', t: 'select', label: 'Layout', options: [['board', 'Stock board (by rarity)'], ['spotlight', 'Last spawn + events (alert card)'], ['events', 'Events only'], ['list', 'One list'], ['grouped', 'By location']] },
-    { k: 'eggsOrient', t: 'seg', label: 'Stream', options: [['horizontal', 'Horizontal 16:9'], ['vertical', 'Vertical 9:16']], show: (s) => ['spotlight', 'events'].includes(s.eggsLayout), hint: 'Vertical = YouTube Shorts / Kick mobile live' },
+    { k: 'eggsLayout', t: 'select', label: 'Layout', options: [['alert', 'Alert — new egg / event pops up'], ['board', 'Stock board (by rarity)'], ['spotlight', 'Last spawn + events (alert card)'], ['events', 'Events only'], ['list', 'One list'], ['grouped', 'By location']] },
+    { k: 'eggsOrient', t: 'seg', label: 'Stream', options: [['horizontal', 'Horizontal 16:9'], ['vertical', 'Vertical 9:16']], show: (s) => ['alert', 'spotlight', 'events'].includes(s.eggsLayout), hint: 'Vertical = YouTube Shorts / Kick mobile live' },
+    { k: 'eggsPopup', t: 'range', label: 'Show each for', min: 0, max: 120, step: 1, show: (s) => s.eggsLayout === 'alert', fmt: (v) => (v === 0 ? 'Always (latest stays)' : `${v} s, then hide`), hint: 'Several at once (e.g. an event + 2 eggs) show one after another' },
     { k: 'eggsPopup', t: 'range', label: 'Pop up', min: 0, max: 120, step: 5, show: (s) => ['spotlight', 'events'].includes(s.eggsLayout), fmt: (v) => (v === 0 ? 'Always visible' : `${v} s per spawn`), hint: 'Shows only when a new egg / event arrives, then hides (the preview stays visible)' },
-    { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => ['board', 'grouped'].includes(s.eggsLayout), hint: 'Tiles / panels per row' },
+    { k: 'eggsFit', t: 'toggle', label: 'Fit to screen', show: (s) => s.eggsLayout !== 'alert', hint: 'OBS: everything (events, Secret, Eternal, Divine …) always fits the source, at any resolution' },
+    { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => ['board', 'grouped'].includes(s.eggsLayout), hint: 'Tiles / panels per row (Fit to screen adds columns on wide screens)' },
   ] },
   { tab: 'content', title: 'Eggs', types: ['eggs'], fields: [
     { k: 'eggsCount', t: 'range', label: 'How many eggs', min: 1, max: 40, show: (s) => s.eggsLayout !== 'board' },
@@ -243,6 +247,14 @@ const GROUPS = [
     { k: 'eggsTitle', t: 'text', label: 'List title', placeholder: 'Latest eggs', show: (s) => s.eggsLayout === 'list' },
     { k: 'eggsLocation', t: 'toggle', label: 'Show location', show: (s) => s.eggsLayout !== 'grouped' },
     { k: 'eggsDetails', t: 'toggle', label: 'Money & speed' },
+  ] },
+  { tab: 'layout', title: 'Alert look', types: ['eggs'], fields: [
+    { k: 'eggsAlertStyle', t: 'select', label: 'Style', show: isAlert, options: [['card', 'Card (glowing)'], ['banner', 'Banner (slim bar)'], ['toast', 'Toast (compact pill)'], ['neon', 'Neon'], ['glass', 'Glass'], ['minimal', 'Minimal (no background)'], ['big', 'Big (centered)']] },
+    { k: 'eggsAlertPos', t: 'seg', label: 'Position', show: isAlert, options: [['top', 'Top'], ['center', 'Center'], ['bottom', 'Bottom']] },
+    { k: 'animation', t: 'select', label: 'Entry animation', show: isAlert, options: ANIM_OPTIONS },
+    { k: 'animSpeed', t: 'seg', label: 'Speed', show: isAlert, options: [['fast', 'Fast'], ['normal', 'Normal'], ['slow', 'Slow']] },
+    { k: 'eggsEggLabel', t: 'text', label: 'Egg label', show: isAlert, placeholder: '{rarity} egg spawned', hint: '{rarity} becomes Secret, Eternal, Divine …' },
+    { k: 'eggsEventLabel', t: 'text', label: 'Event label', show: isAlert, placeholder: '⚡ EVENT' },
   ] },
   { tab: 'content', title: 'Game events', types: ['eggs'], fields: [
     { k: 'eggsEvents', t: 'toggle', label: 'Show events', show: (s) => s.eggsLayout !== 'events', hint: 'Tidal Surge, Butterfly Bloom, Slick Rick … from the Discord feed' },
@@ -413,6 +425,7 @@ function sectionBody(id, type) {
   for (const g of GROUPS) {
     if (g.tab !== id || (g.types && !g.types.includes(type))) continue;
     const fields = g.fields.filter((f) => !(f.types && !f.types.includes(type)) && !(f.show && !f.show(settings)));
+    if (!fields.length) continue; // e.g. "Alert look" when the layout isn't Alert
     out.push(h('div', { class: 'sub' }, h('div', { class: 'sub-title' }, g.title), fields.map(fieldEl)));
   }
   return out;
@@ -549,6 +562,7 @@ eggsView.preview = true; // popup mode would hide the Studio preview
 /** OBS size for the eggs widget (spotlight/events depend on stream orientation). */
 const eggsSize = (s) => ({
   list: '420 × 700', board: '1000 × 1000', grouped: '1200 × 700',
+  alert: s.eggsOrient === 'vertical' ? '420 × 520' : '900 × 220',
   spotlight: s.eggsOrient === 'vertical' ? '420 × 760' : '1100 × 300',
   events: s.eggsOrient === 'vertical' ? '420 × 700' : '1100 × 260',
 }[s.eggsLayout] || '1200 × 700');

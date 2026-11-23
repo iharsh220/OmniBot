@@ -416,6 +416,10 @@ export class EggsView {
     this.freshUntil = new Map(); // id → time until which it still plays its entry animation
     this.popUntil = 0; // popup mode: visible until
     this.preview = false; // Studio preview ignores popup mode (always visible)
+    this.fit = false; // set by the OBS page (widget.js): fit everything into the window
+    this.queue = []; // alert layout: new eggs/events waiting to be shown, oldest first
+    this.current = null; // alert layout: the item on screen
+    this.currentUntil = 0;
     this.setSettings(settings);
     this.timer = setInterval(() => this.refreshTimes(), 15_000);
   }
@@ -427,10 +431,12 @@ export class EggsView {
   /** Newest first. Eggs not seen before get an entry animation (not on the first load). */
   setItems(items) {
     let n = 0;
+    const added = [];
     for (const e of items || []) {
-      if (!this.first && !this.seen.has(e.id)) { this.markFresh(e.id); n++; }
+      if (!this.first && !this.seen.has(e.id)) { this.markFresh(e.id); n++; added.push({ type: 'egg', item: e }); }
       this.seen.add(e.id);
     }
+    this.enqueue(added);
     this.first = false;
     this.items = items || [];
     if (n) this.popup();
@@ -439,14 +445,66 @@ export class EggsView {
   /** Game events, newest first. New ones animate in (and open the popup). */
   setEvents(list) {
     let n = 0;
+    const added = [];
     for (const ev of list || []) {
-      if (!this.firstEv && !this.seenEv.has(ev.id)) { this.markFresh(ev.id); n++; }
+      if (!this.firstEv && !this.seenEv.has(ev.id)) { this.markFresh(ev.id); n++; added.push({ type: 'event', item: ev }); }
       this.seenEv.add(ev.id);
     }
+    if (this.s.eggsEvents !== false) this.enqueue(added);
     this.firstEv = false;
     this.events = Array.isArray(list) ? list : [];
     if (n && this.s.eggsEvents !== false) this.popup();
     this.render();
+  }
+  /** Alert layout: new things are shown one after another (oldest first), each for eggsPopup seconds. */
+  enqueue(list) {
+    if (!list.length) return;
+    this.queue.push(...list.sort((a, b) => a.item.ts - b.item.ts));
+    if (this.queue.length > 8) this.queue = this.queue.slice(-8); // a burst never queues for ages
+    this.advance();
+  }
+  advance() {
+    const sec = this.s.eggsPopup;
+    if (this.current && sec > 0 && Date.now() < this.currentUntil) return;
+    const next = this.queue.shift();
+    if (next) {
+      this.leaving = false;
+      this.current = next;
+      this.freshUntil.set(next.item.id, Date.now() + 2500);
+      if (sec > 0) {
+        this.currentUntil = Date.now() + sec * 1000;
+        clearTimeout(this.alertTimer);
+        this.alertTimer = setTimeout(() => { this.advance(); this.render(); }, sec * 1000 + 40);
+      } else this.queue = []; // 0 = no timer: the newest one simply stays
+    } else if (sec > 0 && this.current && Date.now() >= this.currentUntil && !this.leaving) {
+      // nothing left → play the exit animation, then hide
+      this.leaving = true;
+      clearTimeout(this.alertTimer);
+      this.alertTimer = setTimeout(() => { if (this.leaving) { this.current = null; this.leaving = false; this.render(); } }, 450);
+    }
+  }
+  /** The newest egg or event (used when the alert has no timer, and in the Studio preview). */
+  newest() {
+    const e = this.items[0];
+    const ev = this.s.eggsEvents !== false ? this.events[0] : null;
+    if (!e && !ev) return null;
+    return !ev || (e && e.ts >= ev.ts) ? { type: 'egg', item: e } : { type: 'event', item: ev };
+  }
+  alert(fresh) {
+    const sec = this.s.eggsPopup;
+    let cur = this.current;
+    if (!cur && (sec <= 0 || this.preview)) cur = this.newest();
+    if (sec <= 0 && this.current && this.newest()?.item.id !== this.current.item.id) cur = this.newest();
+    if (!cur) return null;
+    const box = el('div', 'eggs-box egg-alert' + (this.leaving && !this.preview ? ' leaving' : ''));
+    if (cur.type === 'egg') box.append(this.hero(cur.item, fresh));
+    else {
+      const card = this.eventCard(cur.item, fresh, true);
+      card.classList.add('egg-alert-ev');
+      card.querySelector('.egg-evtop').dataset.tag = this.s.eggsEventLabel ?? '⚡ EVENT';
+      box.append(card);
+    }
+    return box;
   }
   markFresh(id) { this.freshUntil.set(id, Date.now() + 2500); }
   freshSet() {
@@ -468,6 +526,9 @@ export class EggsView {
   visibleEvents() {
     let list = this.events;
     if (this.s.eggsMaxAge > 0) list = list.filter((x) => Date.now() - x.ts < this.s.eggsMaxAge * 60_000);
+    // One card per event name = when it LAST happened (list is newest first). Future event names work the same.
+    const names = new Set();
+    list = list.filter((x) => { const k = String(x.name || '').toLowerCase(); if (names.has(k)) return false; names.add(k); return true; });
     return list.slice(0, Math.max(1, this.s.eggsEventsCount || 3));
   }
   /** One event: icon · NAME · 9:14 AM · where · (summary / possible eggs) · ACTIVE/NEW badge. */
@@ -515,7 +576,8 @@ export class EggsView {
     const card = el('div', 'egg-hero' + (fresh.has(e.id) ? ' enter' : '') + (this.isNew(e) ? ' is-new' : ''));
     card.style.setProperty('--rc', rarityColor(e.rarity));
     const kicker = el('div', 'egg-hkicker');
-    kicker.append(el('span', 'egg-dot'), el('span', '', `${e.rarity ? `${e.rarity} egg` : 'Egg'} spawned`));
+    const label = String(this.s.eggsEggLabel ?? '{rarity} egg spawned').replace(/\{rarity\}/gi, e.rarity || '').replace(/\s+/g, ' ').trim();
+    kicker.append(el('span', 'egg-dot'), el('span', '', label || `${e.rarity || ''} egg spawned`.trim()));
     if (this.isNew(e)) kicker.append(el('span', 'egg-hlive', 'LIVE NOW'));
     const when = el('div', 'egg-hwhen');
     when.append(el('span', '', clock(e.ts)), el('span', 'egg-sep', '·'), this.ago(e));
@@ -565,8 +627,36 @@ export class EggsView {
     return card;
   }
   render() {
+    this.draw();
+    this.fitToScreen();
+  }
+  /**
+   * OBS "fit to screen": find the biggest scale at which the whole overlay fits the window. The box is
+   * laid out at width W/scale (so columns re-flow to the window's shape) and then scaled down/up.
+   */
+  fitToScreen() {
+    const box = this.root.firstElementChild;
+    if (!box) return;
+    const reset = () => { box.style.width = ''; box.style.transform = ''; box.style.transformOrigin = ''; this.root.classList.remove('egg-fit'); };
+    if (!this.fit || !this.s.eggsFit || this.s.eggsLayout === 'alert') { reset(); return; }
+    this.root.classList.add('egg-fit'); // columns become automatic, so a wide window gets more columns
+    const cs = getComputedStyle(this.root);
+    const W = this.root.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const H = this.root.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (W < 40 || H < 40) { reset(); return; }
+    box.style.transformOrigin = 'top left';
+    const fits = (k) => { box.style.width = `${W / k}px`; return box.offsetHeight * k <= H + 0.5; };
+    let lo = 0.12;
+    let hi = 2.5; // up to 2.5× on big screens with little content
+    if (!fits(lo)) hi = lo;
+    else for (let i = 0; i < 12; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+    box.style.width = `${W / lo}px`;
+    box.style.transform = `scale(${lo})`;
+  }
+  draw() {
     const s = this.s;
     const fresh = this.freshSet();
+    if (s.eggsLayout === 'alert') { const a = this.alert(fresh); this.root.replaceChildren(...(a ? [a] : [])); return; }
     if (this.hiddenByPopup()) { this.root.replaceChildren(); return; }
     const list = this.visible();
     const box = el('div', 'eggs-box');
@@ -679,7 +769,7 @@ export class EggsView {
   }
   /** Update "8m ago" texts and NEW highlights without re-rendering. */
   refreshTimes() {
-    if (['board', 'spotlight', 'events'].includes(this.s.eggsLayout) || this.events.some((x) => x.endsAt)) { this.render(); return; }
+    if (['board', 'spotlight', 'events', 'alert'].includes(this.s.eggsLayout) || this.events.some((x) => x.endsAt)) { this.render(); return; }
     for (const t of this.root.querySelectorAll('.egg-ago')) t.textContent = eggAgo(Number(t.dataset.ts));
     for (const r of this.root.querySelectorAll('.egg-row')) r.classList.toggle('is-new', this.isNew({ ts: Number(r.dataset.ts) }));
   }
