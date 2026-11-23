@@ -145,7 +145,7 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
   if (w.type === 'eggs') {
     // Eggs overlay: the shared Steal-an-Egg feed (refreshed at most once per EGG_POLL_MS for everyone).
     const { feed } = await refreshGlobalFeed();
-    const out = { eggs: (feed.items || []).slice(0, 150), seen: boardList(feed), v: w.updatedAt };
+    const out = { eggs: (feed.items || []).slice(0, 150), seen: boardList(feed), eggEvents: (feed.events || []).slice(0, 20), v: w.updatedAt };
     if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
     return res.json(out);
   }
@@ -322,6 +322,7 @@ api.get('/eggs', ah(async (req, res) => {
     settings: eggSettings(req.user),
     items: doc.items,
     seen: boardList(doc),
+    events: (doc.events || []).slice(0, 20),
     rarities: [...new Set(doc.items.map((e) => e.rarity).filter(Boolean))],
     status: {
       feedReady: !!(config.discord.botToken && channelId && !doc.error && doc.lastCheckAt),
@@ -348,7 +349,7 @@ api.put('/eggs/settings', ah(async (req, res) => {
   const b = req.body || {};
   const cur = eggSettings(req.user);
   const next = { ...cur };
-  for (const k of ['enabled', 'commandEnabled', 'youtube', 'kick']) if (b[k] !== undefined) next[k] = !!b[k];
+  for (const k of ['enabled', 'commandEnabled', 'youtube', 'kick', 'events']) if (b[k] !== undefined) next[k] = !!b[k];
   if (b.rarities !== undefined) {
     if (!Array.isArray(b.rarities)) return res.status(400).json({ error: 'rarities must be a list' });
     next.rarities = [...new Set(b.rarities.map(String).filter((r) => /^[A-Za-z]{1,20}$/.test(r)))].slice(0, 20);

@@ -43,6 +43,7 @@ export function connectLive(url, handlers = {}, opts = {}) {
       if (d.v !== undefined) v = d.v;
       if (d.seen) h.onSeen?.(d.seen);
       if (d.eggs) h.onEggs?.(d.eggs);
+      if (d.eggEvents) h.onEggEvents?.(d.eggEvents);
       for (const l of d.logs || []) h.onLog?.(l);
       if (d.logCursor !== undefined) logCursor = d.logCursor;
     } catch {
@@ -131,12 +132,29 @@ const demoEgg = (i, ts) => {
   const [name, rarity, location, money, speed] = DEMO_EGGS[i % DEMO_EGGS.length];
   return { id: `demo-egg-${demoSeq++}`, ts, name, rarity, location, money, speed };
 };
-/** Calls onEggs(list newest-first) now and whenever a new demo egg "spawns". */
-export function startEggDemo(onEggs, everyMs = 6000) {
+// Demo game events, shaped like the parsed "SenZ V2 | Steal An Egg Event Alert" embeds.
+const DEMO_EVENTS = [
+  { name: 'TIDAL SURGE', emoji: '🌊', color: '#46e1ff', where: 'Alien Planet (Aliens biome, 250B Speed)', note: 'The Alien Planet just flooded in every server - Flooded eggs can spawn there until the next egg reset.',
+    section: { title: 'Possible Eggs', lines: ['Jellynova · Cosmic · 73%', 'Flarefish · Cosmic · 20%', 'Tideler · Secret · 5%', 'Abyssjaw · Eternal · 1.9%', 'Prismare · Divine · 0.1%'] } },
+  { name: 'BUTTERFLY BLOOM', emoji: '🦋', color: '#ff69b4', where: 'Enchanted Tree · Enchanted Forest', note: 'Butterflies are swarming the Enchanted Tree — grab your Butterfly Net!',
+    section: { title: 'Why Catch Them', lines: ['Trade them up at the Butterfly Trade Up', 'Craft Enchanted Essence → guaranteed Enchanted ×2.85'] } },
+  { name: 'SLICK RICK IS HERE', emoji: '🕶️', color: '#d4a017', where: 'Alien Planet • ⚡ 250B Speed', leaves: 5,
+    section: { title: 'Sells', lines: ['Fractured • Nitro • Blacklisted • Spirit Bloom', '🥚 Smuggled & Contraband Eggs • ⚔️ Bat skins • 🏠 Base skins'] } },
+];
+const demoEvent = (i, ts) => {
+  const d = DEMO_EVENTS[i % DEMO_EVENTS.length];
+  return { id: `demo-ev-${demoSeq++}`, kind: 'event', ts, image: null, duration: null, note: null, ...d, endsAt: d.leaves ? ts + d.leaves * 60_000 : null };
+};
+/** Calls onEggs(list newest-first) now and whenever a new demo egg "spawns"; onEvents likewise for events. */
+export function startEggDemo(onEggs, everyMs = 6000, onEvents = null) {
+  let events = [demoEvent(0, Date.now() - 9 * 60_000), demoEvent(1, Date.now() - 70 * 60_000), demoEvent(2, Date.now() - 150 * 60_000)];
+  onEvents?.(events);
+  let j = 3;
+  const te = onEvents ? setInterval(() => { events = [demoEvent(j++, Date.now()), ...events].slice(0, 10); onEvents(events); }, everyMs * 2.5) : null;
   // Divine eggs are rare: in the demo they were last seen hours/days ago.
   let list = DEMO_EGGS.map((d, i) => demoEgg(i, Date.now() - (d[1] === 'Divine' ? (i * 9 + 20) * 3_600_000 : (i * 7 + 2) * 60_000)));
   onEggs(list);
   let i = 3;
   const t = setInterval(() => { list = [demoEgg(i++, Date.now()), ...list].slice(0, 40); onEggs(list); }, everyMs);
-  return { stop() { clearInterval(t); } };
+  return { stop() { clearInterval(t); clearInterval(te); } };
 }

@@ -52,7 +52,12 @@ export const DEFAULTS = {
   statsSubsText: '', // empty = "subscribers" / "followers"
   statsTotalText: 'Total watching',
   // ── eggs widget (Steal an Egg spawns overlay) ──
-  eggsLayout: 'board', // board (stock board by rarity) | list | grouped (panels per location)
+  eggsLayout: 'board', // board (stock board by rarity) | list | grouped (per location) | spotlight (last spawn + events) | events
+  eggsOrient: 'horizontal', // spotlight/events: horizontal (16:9 stream) | vertical (9:16 Shorts / TikTok)
+  eggsEvents: true, // show game events (Tidal Surge, Butterfly Bloom, Slick Rick …)
+  eggsEventsCount: 3, // how many events
+  eggsEventDetails: true, // event summary + possible eggs / what it sells
+  eggsPopup: 0, // spotlight/events: 0 = always visible, else pop up for X seconds on each new spawn/event
   eggsCount: 12, // how many eggs to show (list / grouped)
   eggsTiles: 40, // board: max tiles per rarity
   eggsLatest: true, // big card for the newest egg
@@ -150,14 +155,15 @@ const ENUMS = {
   timeFormat: ['24h', '12h'],
   statsHeader: ['both', 'icon', 'name', 'none'],
   statsAlign: ['left', 'center'],
-  eggsLayout: ['board', 'list', 'grouped'],
+  eggsLayout: ['board', 'list', 'grouped', 'spotlight', 'events'],
+  eggsOrient: ['horizontal', 'vertical'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
-  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6],
+  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300],
 };
 const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40 };
 
@@ -226,7 +232,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `speed-${s.animSpeed}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
-    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,

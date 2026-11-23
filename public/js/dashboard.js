@@ -231,8 +231,10 @@ const GROUPS = [
     { k: 'statsNumSize', t: 'range', label: 'Number size', min: 60, max: 200, unit: '%' },
   ] },
   { tab: 'layout', title: 'Eggs layout', types: ['eggs'], fields: [
-    { k: 'eggsLayout', t: 'seg', label: 'Layout', options: [['board', 'Stock board'], ['list', 'One list'], ['grouped', 'By location']] },
-    { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => s.eggsLayout !== 'list', hint: 'Tiles / panels per row' },
+    { k: 'eggsLayout', t: 'select', label: 'Layout', options: [['board', 'Stock board (by rarity)'], ['spotlight', 'Last spawn + events (alert card)'], ['events', 'Events only'], ['list', 'One list'], ['grouped', 'By location']] },
+    { k: 'eggsOrient', t: 'seg', label: 'Stream', options: [['horizontal', 'Horizontal 16:9'], ['vertical', 'Vertical 9:16']], show: (s) => ['spotlight', 'events'].includes(s.eggsLayout), hint: 'Vertical = YouTube Shorts / Kick mobile live' },
+    { k: 'eggsPopup', t: 'range', label: 'Pop up', min: 0, max: 120, step: 5, show: (s) => ['spotlight', 'events'].includes(s.eggsLayout), fmt: (v) => (v === 0 ? 'Always visible' : `${v} s per spawn`), hint: 'Shows only when a new egg / event arrives, then hides (the preview stays visible)' },
+    { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => ['board', 'grouped'].includes(s.eggsLayout), hint: 'Tiles / panels per row' },
   ] },
   { tab: 'content', title: 'Eggs', types: ['eggs'], fields: [
     { k: 'eggsCount', t: 'range', label: 'How many eggs', min: 1, max: 40, show: (s) => s.eggsLayout !== 'board' },
@@ -241,6 +243,11 @@ const GROUPS = [
     { k: 'eggsTitle', t: 'text', label: 'List title', placeholder: 'Latest eggs', show: (s) => s.eggsLayout === 'list' },
     { k: 'eggsLocation', t: 'toggle', label: 'Show location', show: (s) => s.eggsLayout !== 'grouped' },
     { k: 'eggsDetails', t: 'toggle', label: 'Money & speed' },
+  ] },
+  { tab: 'content', title: 'Game events', types: ['eggs'], fields: [
+    { k: 'eggsEvents', t: 'toggle', label: 'Show events', show: (s) => s.eggsLayout !== 'events', hint: 'Tidal Surge, Butterfly Bloom, Slick Rick … from the Discord feed' },
+    { k: 'eggsEventsCount', t: 'range', label: 'How many events', min: 1, max: 10 },
+    { k: 'eggsEventDetails', t: 'toggle', label: 'Event details', hint: 'Summary + possible eggs / what it sells' },
   ] },
   { tab: 'content', title: 'Freshness', types: ['eggs'], fields: [
     { k: 'eggsNewMinutes', t: 'range', label: 'Highlight new for', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Off' : `${v} min`) },
@@ -538,10 +545,17 @@ async function rotateWidget() {
 const chatView = new ChatView($('#chat-preview'), settings);
 const statsView = new StatsView($('#stats-preview'), settings);
 const eggsView = new EggsView($('#eggs-preview'), settings);
+eggsView.preview = true; // popup mode would hide the Studio preview
+/** OBS size for the eggs widget (spotlight/events depend on stream orientation). */
+const eggsSize = (s) => ({
+  list: '420 × 700', board: '1000 × 1000', grouped: '1200 × 700',
+  spotlight: s.eggsOrient === 'vertical' ? '420 × 760' : '1100 × 300',
+  events: s.eggsOrient === 'vertical' ? '420 × 700' : '1100 × 260',
+}[s.eggsLayout] || '1200 × 700');
 let eggDemo = null;
 let eggLiveTimer = null;
 async function loadLiveEggs() {
-  try { const r = await api('/api/eggs'); eggsView.setSeen(r.seen || [], false); eggsView.setItems(r.items || []); } catch { /* keep last */ }
+  try { const r = await api('/api/eggs'); eggsView.setSeen(r.seen || [], false); eggsView.setEvents(r.events || []); eggsView.setItems(r.items || []); } catch { /* keep last */ }
 }
 
 function refreshPreview() {
@@ -553,9 +567,9 @@ function refreshPreview() {
   $('#url').value = url;
   $('#open').href = url || '#';
   $('#size-hint').textContent = current?.type === 'stats' ? (settings.statsLayout === 'column' ? '320 × 300' : '800 × 140')
-    : current?.type === 'eggs' ? (settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 1000' : '1200 × 700') : '400 × 700';
-  $('#eggs-frame').dataset.size = `${settings.eggsLayout === 'list' ? '420 × 700' : settings.eggsLayout === 'board' ? '1000 × 1000' : '1200 × 700'} · OBS size`;
-  $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list');
+    : current?.type === 'eggs' ? eggsSize(settings) : '400 × 700';
+  $('#eggs-frame').dataset.size = `${eggsSize(settings)} · OBS size`;
+  $('#eggs-frame').classList.toggle('wide', settings.eggsLayout !== 'list' && settings.eggsOrient !== 'vertical');
 }
 
 function setFeed(mode) {
@@ -566,7 +580,7 @@ function setFeed(mode) {
   eggDemo?.stop();
   clearInterval(eggLiveTimer);
   if (mode === 'demo') eggsView.setSeen([], false);
-  if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list));
+  if (mode === 'demo') eggDemo = startEggDemo((list) => eggsView.setItems(list), 6000, (list) => eggsView.setEvents(list));
   else { loadLiveEggs(); eggLiveTimer = setInterval(loadLiveEggs, 10_000); }
   if (mode === 'demo') demo = startDemo({ onChat: (m) => chatView.add(m), onState: (st) => statsView.setState(st), platforms: () => ['youtube', 'kick'].filter((p) => settings[p]) });
   else { chatView.setHistory(liveHistory); statsView.setState(liveState || {}); }
@@ -1070,6 +1084,7 @@ async function renderEggs() {
   try { data = await api('/api/eggs'); } catch (e) { toast(e.message, 'err'); return; }
   if (page !== 'eggs') return;
   const { settings: s, items, status: st } = data;
+  const events = data.events || [];
   const save = async (patch, msg = 'Saved') => {
     try { await api('/api/eggs/settings', { method: 'PUT', body: JSON.stringify(patch) }); toast(msg); } catch (e) { toast(e.message, 'err'); }
     renderEggs();
@@ -1119,6 +1134,7 @@ async function renderEggs() {
       h('b', {}, `➕ Add ${!yc ? 'YouTube' : 'Kick'}`),
       h('span', {}, `Connect ${!yc ? 'YouTube' : 'Kick'} to use the Egg Bot there too.`)),
       h('a', { class: 'btn sm', href: '#connections' }, 'Connect')) : null,
+    row('Game events', 'Also post events like 🌊 Tidal Surge, 🦋 Butterfly Bloom and 🕶️ Slick Rick when they happen.', toggle(s.events !== false, (v) => save({ events: v }, v ? 'Events ON' : 'Events OFF'))),
     row('!egghistory command', 'Viewers type !egghistory to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
       h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce, or all eggs.')), chips),
@@ -1162,9 +1178,22 @@ async function renderEggs() {
           h('td', { class: 'egg-details' }, e.location ? h('span', {}, `📍 ${e.location}`) : null, e.money ? h('span', {}, `💰 ${e.money}`) : null, e.speed ? h('span', {}, `⚡ ${e.speed}`) : null))))))
       : h('div', { class: 'empty' }, ic('egg'), h('b', {}, 'No eggs yet'), 'Turn the Egg Bot ON — new spawns show up here within seconds.'));
 
+  // ── recent game events (same Discord feed) ──
+  const evCard = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('zap'), h('h3', {}, 'Recent events'), h('span', { class: 'sub' }, 'Tidal Surge, Butterfly Bloom, Slick Rick …')),
+    events.length
+      ? h('div', { class: 'table-wrap', style: 'max-height:360px' }, h('table', { class: 'table' },
+        h('thead', {}, h('tr', {}, ['When', 'Event', 'Where'].map((x) => h('th', {}, x)))),
+        h('tbody', {}, events.map((ev) => h('tr', {},
+          h('td', { class: 'when', title: fmtTime(ev.ts) }, h('b', {}, ago(ev.ts)), new Date(ev.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })),
+          h('td', {}, h('b', { class: 'who', style: 'display:block' }, `${ev.emoji || '✨'} ${ev.name}`),
+            ev.endsAt && ev.endsAt > Date.now() ? h('span', { class: 'tag ok' }, 'ACTIVE') : null),
+          h('td', { class: 'egg-details' }, ev.where ? h('span', {}, `📍 ${ev.where}`) : null, ev.section ? h('span', {}, `${ev.section.title}: ${ev.section.lines.slice(0, 3).join(' · ')}`) : null))))))
+      : h('div', { class: 'empty' }, ic('zap'), h('b', {}, 'No events yet'), 'New events from the Discord channel show up here.'));
+
   root.replaceChildren(h('div', { class: 'grid two' },
     h('div', { class: 'grid', style: 'align-content:start' }, botCard, settingsCard),
-    h('div', { class: 'grid', style: 'align-content:start' }, checklist, history)));
+    h('div', { class: 'grid', style: 'align-content:start' }, checklist, evCard, history)));
 }
 setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#page-eggs input')) renderEggs(); }, 10_000);
 

@@ -10,7 +10,8 @@ const YT_MAX = 200; // YouTube live chat message length limit
 
 // enabled = master ON/OFF · youtube / kick = where to post · commandEnabled = !egghistory
 // YouTube messages always come from the shared OmniChat Bot; Kick from the Kick app bot.
-export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, rarities: [], youtube: true, kick: true });
+// events = also post game events (Tidal Surge, Butterfly Bloom, Slick Rick …) from the same Discord channel.
+export const defaultEggSettings = () => ({ enabled: false, commandEnabled: true, rarities: [], youtube: true, kick: true, events: true });
 export const eggSettings = (user) => ({ ...defaultEggSettings(), ...(user.egg || {}) });
 
 const stripEmoji = (s) => String(s || '').replace(/<a?:\w+:\d+>/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
@@ -53,6 +54,87 @@ export function parseEggMessage(m) {
     if (x) out.push({ id: `${m.id}-0`, ts: Date.parse(m.timestamp) || Date.now(), rarity: null, name: x[1].trim().slice(0, 60), location: null, money: null, speed: null });
   }
   return out;
+}
+
+// ── Game events ("SenZ V2 | Steal An Egg Event Alert") ──
+// Embed without a title; the description starts with "## <emoji> TIDAL SURGE - <t:ts:t>", then
+// "**Where:** …", an *italic* summary, a "**🎲 Possible Eggs:**" / "**🛒 Sells:**" list and "Leaves <t:ts:R>".
+const MAX_EVENTS = 60;
+const CUSTOM_EMOJI = /<a?:(\w+):(\d+)>/;
+const LEAD_EMOJI = /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\u200d|\ufe0f|\u20e3)+)\s*/u;
+const cleanLine = (t) => String(t || '')
+  .replace(/<a?:\w+:\d+>/g, '').replace(/<t:\d+(?::\w)?>/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  .replace(/^\s*(?:-#|#{1,3}|[•*-])\s+/, '').replace(/\*\*|__|~~|`/g, '').replace(/(^|\s)\*(?=\S)|(?<=\S)\*(?=\s|$)/g, '$1')
+  .replace(/\(\s*\)/g, '').replace(/\s+/g, ' ').trim();
+const noLeadEmoji = (t) => t.replace(LEAD_EMOJI, '').trim();
+// Fallback emoji for YouTube chat when the event icon is a Discord custom emoji.
+const EVENT_EMOJI = [[/bloom|butterfl/i, '🦋'], [/tidal|flood|surge/i, '🌊'], [/rick|merchant|shop|sell/i, '🕶️'], [/storm|thunder/i, '⛈️'], [/meteor|star|cosmic/i, '☄️'], [/fire|lava|volcan/i, '🔥'], [/snow|ice|frost/i, '❄️']];
+
+export function parseEventMessage(m) {
+  const out = [];
+  (m.embeds || []).forEach((e, i) => {
+    const desc = String(e.description || '');
+    const isEvent = /event alert/i.test(e.footer?.text || '') || (/^\s*##\s/.test(desc) && !/\*\*Egg:\*\*/i.test(desc));
+    if (!isEvent) return;
+    const lines = desc.split('\n');
+    const hi = lines.findIndex((l) => /^\s*##\s+\S/.test(l));
+    const rawHead = hi >= 0 ? lines[hi].replace(/^\s*##\s+/, '') : String(e.title || '');
+    if (!rawHead.trim()) return;
+    const tsM = rawHead.match(/<t:(\d+)/) || desc.match(/<t:(\d+)/);
+    let head = rawHead.replace(/\s*[-–—]\s*<t:\d+(?::\w)?>\s*$/, '').trim();
+    let emoji = null;
+    let emojiImg = null;
+    const ce = head.match(new RegExp(`^${CUSTOM_EMOJI.source}\\s*`));
+    if (ce) { emojiImg = `https://cdn.discordapp.com/emojis/${ce[2]}.png?size=96`; head = head.slice(ce[0].length); }
+    const ue = head.match(LEAD_EMOJI);
+    if (!ce && ue) { emoji = ue[1]; head = head.slice(ue[0].length); }
+    const name = cleanLine(head).slice(0, 60);
+    if (!name) return;
+    const ev = {
+      id: `${m.id}-ev${i}`, kind: 'event', name, emoji: emoji || (EVENT_EMOJI.find(([re]) => re.test(name)) || [])[1] || '✨',
+      ts: tsM ? Number(tsM[1]) * 1000 : Date.parse(m.timestamp) || Date.now(),
+      image: eggImage(e) || (emojiImg && IMG_RE.test(emojiImg) ? emojiImg : null),
+      color: Number.isInteger(e.color) ? `#${e.color.toString(16).padStart(6, '0')}` : null,
+      where: null, note: null, duration: null, endsAt: null, section: null,
+    };
+    let section = null;
+    for (let k = hi + 1; k < lines.length; k++) {
+      const raw = lines[k];
+      const t = raw.trim();
+      if (!t) { if (section?.lines.length) section = null; continue; }
+      if (/join game|add me to your server/i.test(t) || /^-#/.test(t)) continue;
+      const leaves = t.match(/(?:leaves|ends)\b[^<]*<t:(\d+):R>/i);
+      if (leaves) { ev.endsAt = Number(leaves[1]) * 1000; continue; }
+      const where = t.match(/\*\*Where:\*\*\s*(.+)$/i);
+      if (where) { ev.where = noLeadEmoji(cleanLine(where[1])).slice(0, 80); continue; }
+      if (/^\S*\s*\*\*(?:Started|Flooded|Spawned|Starts|Ends):\*\*/i.test(t)) continue;
+      const sec = t.match(/^\*\*(.+?):?\*\*:?$/);
+      if (sec) { section = { title: noLeadEmoji(cleanLine(sec[1])).replace(/\s*\(.*\)$/, '').replace(/:$/, '').slice(0, 40), lines: [] }; if (!ev.section) ev.section = section; continue; }
+      if (/^\*[^*].*\*$/.test(t) || /^_[^_].*_$/.test(t)) { ev.note = ev.note || cleanLine(t.slice(1, -1)).slice(0, 140); continue; }
+      if (/^⏳/.test(t)) { ev.duration = noLeadEmoji(cleanLine(t)).slice(0, 80); continue; }
+      if (section && section === ev.section) { if (section.lines.length < 6) section.lines.push(cleanLine(raw).slice(0, 90)); continue; }
+      if (!ev.where && k <= hi + 2) ev.where = noLeadEmoji(cleanLine(t)).slice(0, 80); // e.g. "👽 Alien Planet • ⚡ 250B Speed"
+    }
+    if (ev.section && !ev.section.lines.length) ev.section = null;
+    out.push(ev);
+  });
+  return out;
+}
+
+/** Chat text for an event (YouTube ≤ 200 chars). */
+export const formatEvent = (ev) => {
+  const parts = [`${ev.emoji || '✨'} ${ev.name}`];
+  if (ev.where) parts.push(`📍${ev.where}`);
+  if (ev.endsAt && ev.endsAt > Date.now()) parts.push(`⏳ ends in ${Math.max(1, Math.round((ev.endsAt - Date.now()) / 60000))}m`);
+  else if (ev.duration) parts.push(`⏳ ${ev.duration}`);
+  return parts.join(' | ').slice(0, YT_MAX);
+};
+
+function mergeEvents(G, list) {
+  if (!list.length) return;
+  const byId = new Map((G.events || []).map((x) => [x.id, x]));
+  for (const ev of list) byId.set(ev.id, ev);
+  G.events = [...byId.values()].sort((a, b) => b.ts - a.ts).slice(0, MAX_EVENTS); // newest first
 }
 
 async function fetchMessages(channelId, afterId, limit, beforeId) {
@@ -167,11 +249,12 @@ export async function refreshGlobalFeed() {
   if (!channelId || !config.discord.botToken) return { feed: g, logs };
   const reset = g.channelId !== channelId;
   let fresh = [];
+  const freshEvents = [];
   let lastId = reset ? null : g.lastMessageId;
   let error = null;
   try {
     const msgs = await fetchMessages(channelId, lastId);
-    for (const m of msgs) fresh.push(...parseEggMessage(m));
+    for (const m of msgs) { fresh.push(...parseEggMessage(m)); freshEvents.push(...parseEventMessage(m)); }
     if (msgs.length) lastId = msgs[msgs.length - 1].id;
   } catch (e) {
     error = e.message;
@@ -198,6 +281,12 @@ export async function refreshGlobalFeed() {
       logs.push({ level: 'warn', source: 'eggs', message: `History backfill: ${e.message}` });
     }
   }
+  // One-time: feeds saved before events were parsed get the events from the last 100 messages.
+  const oldEvents = [];
+  let eventsBackfilled = false;
+  if (!error && !reset && !g.eventsV1) {
+    try { for (const m of await fetchMessages(channelId, null, 100)) oldEvents.push(...parseEventMessage(m)); eventsBackfilled = true; } catch { /* try again next time */ }
+  }
   // One-time: feeds saved before egg pictures existed get their images from the last 100 messages.
   const pics = new Map();
   if (!error && !reset && !g.imagesV1 && g.items.some((x) => !('image' in x))) {
@@ -210,7 +299,9 @@ export async function refreshGlobalFeed() {
       G.items = G.items.map((x) => ('image' in x ? x : { ...x, image: pics.get(x.id) || null }));
       G.imagesV1 = true;
     }
-    if (reset) { G.items = []; G.channelId = channelId; G.seen = {}; G.recent = {}; G.backfill = null; }
+    if (reset) { G.items = []; G.events = []; G.channelId = channelId; G.seen = {}; G.recent = {}; G.backfill = null; }
+    mergeEvents(G, [...oldEvents, ...freshEvents]);
+    if (eventsBackfilled) G.eventsV1 = true;
     const have = new Set(G.items.map((x) => x.id));
     G.items = [...fresh.filter((e) => !have.has(e.id)).reverse(), ...G.items].slice(0, MAX_HISTORY); // newest first
     if (!G.seen) addSeen(G, G.items); // first time: start the board from what we already have
@@ -251,11 +342,29 @@ export async function eggStep({ uid, user, commands, targets }) {
   const changed = newestId !== doc.lastSeenId;
   doc.lastSeenId = newestId;
 
+  // game events this streamer hasn't seen yet (same "no backlog on first run" rule)
+  const events = feed.events || [];
+  let freshEvents = [];
+  if (doc.lastEventId) {
+    const i = events.findIndex((x) => x.id === doc.lastEventId);
+    freshEvents = (i === -1 ? events.slice(0, 2) : events.slice(0, i)).reverse()
+      .filter((x) => Date.now() - x.ts < 30 * 60_000); // never announce stale events
+  }
+  const newestEventId = events[0]?.id || doc.lastEventId || null;
+  const eventsChanged = newestEventId !== (doc.lastEventId || null);
+  doc.lastEventId = newestEventId;
+
   const wanted = (e) => !s.rarities.length || (e.rarity && s.rarities.includes(e.rarity));
   if (s.enabled) {
     for (const e of fresh.filter(wanted)) {
       if (targets.youtube) posts.push({ to: 'youtube', text: formatEgg(e) });
       if (targets.kick) posts.push({ to: 'kick', text: formatEgg(e) });
+    }
+    if (s.events) {
+      for (const ev of freshEvents) {
+        if (targets.youtube) posts.push({ to: 'youtube', text: formatEvent(ev) });
+        if (targets.kick) posts.push({ to: 'kick', text: formatEvent(ev) });
+      }
     }
   }
 
@@ -272,7 +381,7 @@ export async function eggStep({ uid, user, commands, targets }) {
   const ytAllowed = yt.slice(0, room);
   if (yt.length > ytAllowed.length) logs.push({ level: 'warn', source: 'eggs', message: `Skipped ${yt.length - ytAllowed.length} YouTube message(s) (rate/daily limit)` });
   doc.posted.n += ytAllowed.length;
-  if (changed || posts.length || commands.length) await db.set(`eggs/${uid}`, doc);
+  if (changed || eventsChanged || posts.length || commands.length) await db.set(`eggs/${uid}`, doc);
   return { posts: [...ytAllowed, ...posts.filter((p) => p.to === 'kick').slice(0, 6)], logs, newEggs: fresh };
 }
 

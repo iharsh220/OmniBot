@@ -384,15 +384,38 @@ function eggIcon(e, cls) {
   return box;
 }
 const SPAWN_LIST = { divine: 5 }; // these rarities show their last N spawns (same egg can repeat)
+/** Event icon: Discord picture if any, else its emoji. */
+function eventIcon(ev, cls) {
+  const box = el('span', cls);
+  const fallback = ev.emoji || '✨';
+  const src = ev.image && /^https:\/\/(cdn|media)\.discordapp\.(com|net)\//.test(ev.image) ? ev.image : null;
+  if (!src) { box.textContent = fallback; return box; }
+  const img = document.createElement('img');
+  img.src = src; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+  img.onerror = () => { box.classList.remove('has-img'); box.textContent = fallback; };
+  box.classList.add('has-img');
+  box.append(img);
+  return box;
+}
+const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+const left = (ms) => { const m = Math.max(1, Math.round(ms / 60_000)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
+const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : null);
+
 const RARITY_ORDER = ['secret', 'eternal', 'divine', 'mythic', 'legendary', 'epic', 'rare', 'uncommon', 'common'];
 
 export class EggsView {
   constructor(root, settings) {
     this.root = root;
     this.items = [];
+    this.events = []; // game events (Tidal Surge, Butterfly Bloom …), newest first
     this.lastSeen = []; // board: every egg name ever seen (server keeps it forever)
     this.seen = new Set();
+    this.seenEv = new Set();
     this.first = true;
+    this.firstEv = true;
+    this.freshUntil = new Map(); // id → time until which it still plays its entry animation
+    this.popUntil = 0; // popup mode: visible until
+    this.preview = false; // Studio preview ignores popup mode (always visible)
     this.setSettings(settings);
     this.timer = setInterval(() => this.refreshTimes(), 15_000);
   }
@@ -403,14 +426,106 @@ export class EggsView {
   }
   /** Newest first. Eggs not seen before get an entry animation (not on the first load). */
   setItems(items) {
-    const fresh = new Set();
-    for (const e of items) {
-      if (!this.first && !this.seen.has(e.id)) fresh.add(e.id);
+    let n = 0;
+    for (const e of items || []) {
+      if (!this.first && !this.seen.has(e.id)) { this.markFresh(e.id); n++; }
       this.seen.add(e.id);
     }
     this.first = false;
     this.items = items || [];
-    this.render(fresh);
+    if (n) this.popup();
+    this.render();
+  }
+  /** Game events, newest first. New ones animate in (and open the popup). */
+  setEvents(list) {
+    let n = 0;
+    for (const ev of list || []) {
+      if (!this.firstEv && !this.seenEv.has(ev.id)) { this.markFresh(ev.id); n++; }
+      this.seenEv.add(ev.id);
+    }
+    this.firstEv = false;
+    this.events = Array.isArray(list) ? list : [];
+    if (n && this.s.eggsEvents !== false) this.popup();
+    this.render();
+  }
+  markFresh(id) { this.freshUntil.set(id, Date.now() + 2500); }
+  freshSet() {
+    const now = Date.now();
+    for (const [id, t] of this.freshUntil) if (t < now) this.freshUntil.delete(id);
+    return new Set(this.freshUntil.keys());
+  }
+  popup() {
+    const sec = this.s.eggsPopup;
+    if (!(sec > 0)) return;
+    this.popUntil = Date.now() + sec * 1000;
+    clearTimeout(this.popTimer);
+    this.popTimer = setTimeout(() => this.render(), sec * 1000 + 60);
+  }
+  hiddenByPopup() {
+    const s = this.s;
+    return !this.preview && s.eggsPopup > 0 && ['spotlight', 'events'].includes(s.eggsLayout) && Date.now() > this.popUntil;
+  }
+  visibleEvents() {
+    let list = this.events;
+    if (this.s.eggsMaxAge > 0) list = list.filter((x) => Date.now() - x.ts < this.s.eggsMaxAge * 60_000);
+    return list.slice(0, Math.max(1, this.s.eggsEventsCount || 3));
+  }
+  /** One event: icon · NAME · 9:14 AM · where · (summary / possible eggs) · ACTIVE/NEW badge. */
+  eventCard(ev, fresh, big = false) {
+    const s = this.s;
+    const active = ev.endsAt && ev.endsAt > Date.now();
+    const isNew = !active && s.eggsNewMinutes > 0 && Date.now() - ev.ts < s.eggsNewMinutes * 60_000;
+    const card = el('div', 'egg-event' + (big ? ' big' : '') + (active ? ' active' : '') + (isNew ? ' is-new' : '') + (fresh.has(ev.id) ? ' enter' : ''));
+    const c = safeColor(ev.color);
+    if (c) card.style.setProperty('--ec', c);
+    const top = el('div', 'egg-evtop');
+    top.append(el('span', 'egg-evname', ev.name), el('span', 'egg-evtime', clock(ev.ts)));
+    const body = el('div', 'egg-evbody');
+    body.append(top);
+    const sub = el('div', 'egg-evsub');
+    if (ev.where) sub.append(el('span', 'egg-evwhere', `📍 ${ev.where}`));
+    sub.append(this.ago(ev));
+    body.append(sub);
+    if (s.eggsEventDetails) {
+      if (ev.note && big) body.append(el('div', 'egg-evnote', ev.note));
+      if (ev.section?.lines?.length) {
+        const lines = ev.section.lines.slice(0, big ? 5 : 3);
+        const sec = el('div', 'egg-evsec');
+        sec.append(el('span', 'egg-evsect', `${ev.section.title}:`), el('span', '', ` ${lines.join(' · ')}`));
+        body.append(sec);
+      }
+    }
+    card.append(eventIcon(ev, 'egg-evicon'), body);
+    if (active) card.append(el('span', 'egg-evbadge', `ACTIVE · ${left(ev.endsAt - Date.now())} left`));
+    else if (isNew) card.append(el('span', 'egg-evbadge', 'NEW'));
+    return card;
+  }
+  eventsPanel(fresh, { big = false, title = 'Events' } = {}) {
+    const list = this.visibleEvents();
+    if (!list.length) return null;
+    const panel = el('div', 'egg-panel egg-events');
+    if (title) panel.append(el('h4', 'egg-head', `⚡ ${title}`));
+    const wrap = el('div', 'egg-evlist');
+    wrap.append(...list.map((ev, i) => this.eventCard(ev, fresh, big && i === 0)));
+    panel.append(wrap);
+    return panel;
+  }
+  /** "Last spawn" hero card: big picture, rarity, name, where, money, speed, 9:14 AM · 3m ago. */
+  hero(e, fresh) {
+    const card = el('div', 'egg-hero' + (fresh.has(e.id) ? ' enter' : '') + (this.isNew(e) ? ' is-new' : ''));
+    card.style.setProperty('--rc', rarityColor(e.rarity));
+    const kicker = el('div', 'egg-hkicker');
+    kicker.append(el('span', 'egg-dot'), el('span', '', `${e.rarity ? `${e.rarity} egg` : 'Egg'} spawned`));
+    if (this.isNew(e)) kicker.append(el('span', 'egg-hlive', 'LIVE NOW'));
+    const when = el('div', 'egg-hwhen');
+    when.append(el('span', '', clock(e.ts)), el('span', 'egg-sep', '·'), this.ago(e));
+    const meta = el('div', 'egg-hmeta');
+    if (e.location) meta.append(el('span', '', `📍 ${e.location}`));
+    meta.append(...this.details(e));
+    const body = el('div', 'egg-hbody');
+    body.append(kicker, el('div', 'egg-htitle', e.name), meta, when);
+    card.append(eggIcon(e, 'egg-himg'), body);
+    return card;
   }
   setSeen(list, redraw = true) { this.lastSeen = Array.isArray(list) ? list : []; if (redraw) this.render(); }
   isNew(e) { return this.s.eggsNewMinutes > 0 && Date.now() - e.ts < this.s.eggsNewMinutes * 60_000; }
@@ -449,23 +564,42 @@ export class EggsView {
     card.append(body);
     return card;
   }
-  render(fresh = new Set()) {
+  render() {
     const s = this.s;
+    const fresh = this.freshSet();
+    if (this.hiddenByPopup()) { this.root.replaceChildren(); return; }
     const list = this.visible();
     const box = el('div', 'eggs-box');
+    const showEvents = s.eggsEvents !== false;
+    if (s.eggsLayout === 'spotlight' || s.eggsLayout === 'events') {
+      box.classList.add('egg-spot');
+      if (s.eggsLayout === 'spotlight') {
+        if (list[0]) box.append(this.hero(list[0], fresh));
+        else box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
+      }
+      const ev = showEvents || s.eggsLayout === 'events' ? this.eventsPanel(fresh, { big: s.eggsLayout === 'events' && s.eggsOrient === 'vertical', title: s.eggsLayout === 'events' ? 'Game events' : 'Events' }) : null;
+      if (ev) box.append(ev);
+      else if (s.eggsLayout === 'events') box.append(el('div', 'egg-panel egg-empty', '⚡ Waiting for the next event…'));
+      this.root.replaceChildren(box);
+      return;
+    }
+    const evPanel = showEvents ? this.eventsPanel(fresh) : null;
     if (!list.length && !(s.eggsLayout === 'board' && this.lastSeen.length)) {
+      if (evPanel) box.append(evPanel);
       box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
       this.root.replaceChildren(box);
       return;
     }
     if (s.eggsLayout === 'board') {
       box.classList.add('egg-board');
+      if (evPanel) box.append(evPanel);
       box.append(...this.board(fresh));
       this.root.replaceChildren(box);
       return;
     }
     const rest = s.eggsLatest ? list.slice(1) : list;
     if (s.eggsLatest) box.append(this.latest(list[0], fresh));
+    if (evPanel) box.append(evPanel);
     if (s.eggsLayout === 'grouped') {
       const groups = new Map(); // location → eggs (keeps newest-first order of first appearance)
       for (const e of rest) {
@@ -545,7 +679,7 @@ export class EggsView {
   }
   /** Update "8m ago" texts and NEW highlights without re-rendering. */
   refreshTimes() {
-    if (this.s.eggsLayout === 'board') { this.render(); return; }
+    if (['board', 'spotlight', 'events'].includes(this.s.eggsLayout) || this.events.some((x) => x.endsAt)) { this.render(); return; }
     for (const t of this.root.querySelectorAll('.egg-ago')) t.textContent = eggAgo(Number(t.dataset.ts));
     for (const r of this.root.querySelectorAll('.egg-row')) r.classList.toggle('is-new', this.isNew({ ts: Number(r.dataset.ts) }));
   }
