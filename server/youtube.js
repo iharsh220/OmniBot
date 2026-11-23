@@ -19,6 +19,11 @@ function badgesFor(a) {
   return b;
 }
 
+// Vertical (Shorts) live on mobile: viewers tap 'Say "hi"' and YouTube posts "said hi" for them.
+// It arrives as a plain textMessageEvent (or, if YouTube adds a new type, as its displayMessage).
+const SAID_HI = /^\s*(?:\S+\s+)?said hi\s*[!.👋]*\s*$/iu;
+const isSaidHi = (t) => typeof t === 'string' && t.length <= 60 && SAID_HI.test(t);
+
 function normalise(item) {
   const s = item.snippet;
   const a = item.authorDetails || {};
@@ -28,14 +33,20 @@ function normalise(item) {
     author: { name: a.displayName || 'Unknown', avatar: a.profileImageUrl || null, color: null, badges: badgesFor(a) }, parts: [],
   };
   switch (s.type) {
-    case 'textMessageEvent': return { ...base, parts: text(s.textMessageDetails?.messageText ?? s.displayMessage) };
+    case 'textMessageEvent': {
+      const t = s.textMessageDetails?.messageText ?? s.displayMessage;
+      if (isSaidHi(t)) return { ...base, kind: 'greeting', eventText: '👋 said hi', greeting: true };
+      return { ...base, parts: text(t) };
+    }
     case 'superChatEvent': return { ...base, kind: 'superchat', amount: s.superChatDetails?.amountDisplayString, eventText: 'Super Chat', parts: text(s.superChatDetails?.userComment) };
     case 'superStickerEvent': return { ...base, kind: 'superchat', amount: s.superStickerDetails?.amountDisplayString, eventText: 'Super Sticker' };
     case 'newSponsorEvent': return { ...base, kind: 'member', eventText: s.newSponsorDetails?.isUpgrade ? 'Upgraded membership!' : 'New member!' };
     case 'memberMilestoneChatEvent': return { ...base, kind: 'member', eventText: `Member for ${s.memberMilestoneChatDetails?.memberMonth ?? '?'} months`, parts: text(s.memberMilestoneChatDetails?.userComment) };
     case 'membershipGiftingEvent': return { ...base, kind: 'member', eventText: `Gifted ${s.membershipGiftingDetails?.giftMembershipsCount ?? ''} memberships` };
     case 'giftMembershipReceivedEvent': return null;
-    default: return s.displayMessage ? { ...base, parts: text(s.displayMessage) } : null;
+    default:
+      if (isSaidHi(s.displayMessage) || /said hi/i.test(String(s.type || ''))) return { ...base, kind: 'greeting', eventText: '👋 said hi', greeting: true };
+      return s.displayMessage ? { ...base, parts: text(s.displayMessage) } : null;
   }
 }
 

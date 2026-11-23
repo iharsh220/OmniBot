@@ -47,7 +47,7 @@
 .has-stroke .msg-avatar { text-shadow: none; }
 
 /* Highlight events (works across themes) */
-.kind-superchat { --evt: #ffb300; } .kind-member { --evt: #2ecc71; } .kind-sub { --evt: #53fc18; }
+.kind-superchat { --evt: #ffb300; } .kind-member { --evt: #2ecc71; } .kind-sub { --evt: #53fc18; } .kind-greeting { --evt: #38bdf8; }
 
 /* ════════ THEMES ════════ */
 /* Glass */

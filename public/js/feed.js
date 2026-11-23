@@ -82,6 +82,7 @@ export function demoMessage(platforms = ['youtube', 'kick']) {
     author: { name, avatar: null, color: null, badges: pick(BADGE_SETS).filter((b) => platform === 'kick' ? b.type !== 'member' : b.type !== 'subscriber' && b.type !== 'vip') },
     parts: [{ type: 'text', text: pick(LINES) }],
   };
+  if (r < 0.03 && platform === 'youtube') return { ...base, kind: 'greeting', eventText: '👋 said hi', parts: [] };
   if (r < 0.06 && platform === 'youtube') return { ...base, kind: 'superchat', amount: pick(['₹100.00', '₹500.00', '$5.00', '₹2,000.00']), eventText: 'Super Chat', parts: [{ type: 'text', text: 'Keep it up bhai! ❤️' }] };
   if (r < 0.09 && platform === 'youtube') return { ...base, kind: 'member', eventText: 'New member!', parts: [] };
   if (r < 0.12 && platform === 'kick') return { ...base, kind: 'sub', eventText: 'Subscribed for 3 months!', parts: [] };
