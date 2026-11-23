@@ -9,8 +9,20 @@ export function parseCookies(req) {
   }
   return out;
 }
-export function cookie(name, value, maxAgeSec) {
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${isHttps() ? '; Secure' : ''}`;
+/**
+ * Is THIS request on https? Decided from the request itself (Vercel/Netlify send x-forwarded-proto),
+ * not from APP_URL, so a wrong/missing APP_URL can never make the browser drop our cookies.
+ */
+export function isSecureReq(req) {
+  const proto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (proto) return proto === 'https';
+  return !!req?.socket?.encrypted || isHttps();
+}
+/** The request's own host (behind Vercel/Netlify proxies). */
+export const reqHost = (req) => String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '').split(',')[0].trim().toLowerCase();
+
+export function cookie(name, value, maxAgeSec, secure = isHttps()) {
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
 }
 
 /** CSRF: state-changing calls must come from our own pages. */

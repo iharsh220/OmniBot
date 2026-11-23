@@ -39,6 +39,15 @@
       <p class="muted" style="margin:0">Sign in with the platform you stream on. You can connect the other one later.</p>
       <div class="notice bad" id="error" hidden style="margin-top:14px"><span data-icon="alert"></span><div id="error-text"></div></div>
 
+      <div class="login-last" id="last" hidden>
+        <a class="login-btn last" id="btn-last" href="#">
+          <img id="last-avatar" alt="" referrerpolicy="no-referrer" hidden />
+          <span class="last-text"><span id="last-label">Continue</span><small id="last-sub"></small></span>
+        </a>
+        <button type="button" class="link-btn" id="last-forget">Not you? Use another account</button>
+        <div class="divider" id="last-divider">or</div>
+      </div>
+
       <a class="login-btn yt" id="btn-youtube" href="/auth/youtube">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#ff0033"/><path d="M10 9v6l5.2-3z" fill="#fff"/></svg>
         Continue with YouTube

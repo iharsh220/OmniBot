@@ -2,7 +2,7 @@
 // netlify/functions/api.mjs (Netlify, via serverless-http).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
-import { securityHeaders, sameOrigin, limit, ah, parseCookies } from './http.js';
+import { securityHeaders, sameOrigin, limit, ah, parseCookies, reqHost } from './http.js';
 import { randomId } from './crypto.js';
 import * as db from './store.js';
 import {
@@ -16,7 +16,7 @@ import { verifyKickWebhook, webhookToEvents } from './kick.js';
 import { boardList, eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
 import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickBotReady } from './kick.js';
-import { isBotAccount, getSystemBot, getSystemKickBot, renewSession } from './auth.js';
+import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCookie, readLastLogin, clearLastLogin } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
 
 const app = express();
@@ -36,12 +36,23 @@ const WIDGET_TYPES = ['chat', 'stats', 'eggs'];
 const cleanName = (v) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 60);
 const widgetOut = (w) => ({ id: w.id, type: w.type, name: w.name, settings: w.settings || {}, updatedAt: w.updatedAt });
 const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
-const setCookies = (res, cookies) => cookies.filter(Boolean).forEach((c) => res.append('Set-Cookie', c));
+const setCookies = (res, cookies) => cookies.flat().filter(Boolean).forEach((c) => res.append('Set-Cookie', c));
+/** APP_URL's host when the request came in on a different domain (Vercel preview/alias), else null. */
+function otherHost(req) {
+  let want = '';
+  try { want = new URL(config.appUrl).host.toLowerCase(); } catch { return null; }
+  const got = reqHost(req);
+  return got && want && got !== want && !/^(localhost|127\.0\.0\.1)(:|$)/.test(want) ? want : null;
+}
 
 // â”€â”€ OAuth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (req, res) => {
   const { provider } = req.params;
   if (!providersConfigured()[provider]) return res.redirect(`/login?error=${encodeURIComponent(`${provider} login is not configured on this server`)}`);
+  // OAuth always returns to APP_URL. Start the flow on that same domain, otherwise the state cookie and
+  // the session cookie would live on two different domains and the dashboard would see "no session cookie".
+  const canonical = otherHost(req);
+  if (canonical) return res.redirect(`${config.appUrl}${req.originalUrl.replace(/^\/api(?=\/auth\/)/, '')}`);
   const user = await currentUser(req);
   // ?bot=1 (YouTube): connect the separate bot account that posts Egg Bot messages.
   // ?chat=1 (Kick): ask for chat:write so the Kick app bot can post (kept on later reconnects).
@@ -49,7 +60,7 @@ app.get('/auth/:provider(youtube|kick)', limit('auth', 30, 60_000), ah(async (re
   if (sharedBot && !user) return res.redirect('/login');
   // Allow through to OAuth; handleCallback verifies the picked Google account is the configured bot.
   const chatWrite = provider === 'kick' && (req.query.chat === '1' || String(user?.accounts?.kick?.scope || '').split(/\s+/).includes('chat:write'));
-  const a = authorize(provider, user?.id, { chatWrite, sharedBot });
+  const a = authorize(provider, user?.id, { chatWrite, sharedBot, consent: req.query.consent === '1', req });
   setCookies(res, [a.cookie]);
   res.redirect(a.url);
 }));
@@ -58,14 +69,18 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
   const { provider } = req.params;
   const user = await currentUser(req);
   try {
-    const { uid, linked, bot, needsBotScope } = await handleCallback(provider, req);
-    setCookies(res, [clearStateCookie(), !linked || !user ? await createSession(uid) : null]);
+    const { uid, linked, bot, needsBotScope, needsConsent } = await handleCallback(provider, req);
+    const fresh = !linked || !user;
+    setCookies(res, [clearStateCookie(req), fresh ? await createSession(uid, req) : null]);
+    if (!bot) setCookies(res, [lastLoginCookie(req, await getUser(uid), provider)]);
     // The OmniChat Bot account just signed in â†’ straight on to the chat-post permission (automatic setup).
     if (needsBotScope) return res.redirect('/auth/youtube?sharedbot=1');
+    // First YouTube login with the one-click prompt gave no refresh token → ask Google's consent once.
+    if (needsConsent) return res.redirect('/auth/youtube?consent=1');
     res.redirect(bot ? '/#eggs' : linked ? '/#connections' : '/');
   } catch (e) {
     if (user) await log(user.id, 'error', 'auth', `${provider} login failed: ${e.message}`);
-    setCookies(res, [clearStateCookie()]);
+    setCookies(res, [clearStateCookie(req)]);
     res.redirect(`${user ? '/?error=' : '/login?error='}${encodeURIComponent(e.message)}${user ? '#connections' : ''}`);
   }
 }));
@@ -79,7 +94,7 @@ app.post('/auth/logout-all', ah(async (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'Not logged in' });
-  setCookies(res, [await destroyAllSessions(user.id)]);
+  setCookies(res, [await destroyAllSessions(user.id, req)]);
   await log(user.id, 'info', 'auth', 'Signed out from all devices');
   res.json({ ok: true });
 }));
@@ -138,7 +153,15 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
   res.json(out);
 }));
 
-app.get('/api/providers', (_req, res) => res.json(providersConfigured()));
+// Public (login page): which providers work + the last login on THIS browser for "Continue as …".
+const providersOut = (req) => ({ ...providersConfigured(), last: readLastLogin(req) });
+app.get('/api/providers', (req, res) => res.json(providersOut(req)));
+// "Not you?" on the login page: forget the remembered login on this browser.
+app.post('/api/providers/forget', (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
+  setCookies(res, [clearLastLogin(req)]);
+  res.json({ ok: true });
+});
 
 
 // â”€â”€ Authenticated API â”€â”€
@@ -155,7 +178,7 @@ const authed = ah(async (req, res, next) => {
   next();
 });
 const api = express.Router();
-api.get('/providers', (_req, res) => res.json(providersConfigured())); // public (login page)
+api.get('/providers', (req, res) => res.json(providersOut(req))); // public (login page)
 api.use(authed);
 api.use((req, res, next) => (req.method === 'GET' ? next() : limit('write', 120, 60_000)(req, res, next)));
 
@@ -190,7 +213,7 @@ api.put('/me/settings', ah(async (req, res) => {
 
 api.delete('/me', ah(async (req, res) => {
   if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
-  setCookies(res, [await destroySession(req)]);
+  setCookies(res, [await destroySession(req), clearLastLogin(req)]);
   await deleteUser(req.user.id);
   console.log(`[auth] user ${req.user.id} deleted their account`);
   res.json({ ok: true });

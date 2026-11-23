@@ -1,46 +1,58 @@
 // OAuth (Google/YouTube + Kick), sessions, users/accounts, token refresh, revoke & delete.
 import crypto from 'node:crypto';
-import { config, isHttps, tfetch } from './config.js';
+import { config, tfetch } from './config.js';
 import { encrypt, decrypt, randomId, randomToken, sha256, safeEqual } from './crypto.js';
-import { parseCookies, cookie } from './http.js';
+import { parseCookies, cookie, isSecureReq } from './http.js';
 import * as db from './store.js';
 import { log } from './feed.js';
 
 const SESSION_TTL = 30 * 86_400_000;
 const STATE_TTL = 10 * 60_000;
 // __Host- prefix (https only): cookie locked to this exact host, Secure, Path=/.
-const SESSION = () => (isHttps() ? '__Host-oc_session' : 'oc_session');
-const STATE = () => (isHttps() ? '__Host-oc_oauth' : 'oc_oauth');
+// The name/Secure flag follow the request's real protocol (not APP_URL), and reads accept both names,
+// so a wrong APP_URL on Vercel can never cause "no session cookie".
+const SESSION = 'oc_session';
+const STATE = 'oc_oauth';
+const LAST = 'oc_last'; // remembers the last login on this browser ("Continue as …", like Streamlabs)
+const LAST_TTL = 365 * 86_400;
+const nameFor = (req, base) => (isSecureReq(req) ? `__Host-${base}` : base);
+const readCookie = (req, base) => { const c = parseCookies(req); return c[`__Host-${base}`] || c[base]; };
+const setCookie = (req, base, value, maxAgeSec) => cookie(nameFor(req, base), value, maxAgeSec, isSecureReq(req));
+/** Clear both the __Host- and plain variants (older deploys may have set either). */
+const clearCookies = (req, base) => [cookie(`__Host-${base}`, '', 0, true), ...(isSecureReq(req) ? [] : [cookie(base, '', 0, false)])];
 
 export const redirectUri = (p) => `${config.appUrl}/auth/${p}/callback`;
 
 // ââ Users ââ
-const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: { youtube: [], kick: [] }, widgets: [], sessions: [] });
+const blankUser = (name, avatar) => ({ id: randomId(9), name, avatar, createdAt: Date.now(), historyDays: 7, accounts: {}, widgets: [], sessions: [] });
+/**
+ * One account per platform: user.accounts = { youtube?: {...}, kick?: {...} }.
+ * A platform the user never connected has NO key (so `!!user.accounts.kick` is false and that
+ * service stays off). Older data stored arrays ([] or [acc]); those are converted here.
+ */
 export function normalizeAccounts(user) {
   if (!user) return user;
-  const a = user.accounts && typeof user.accounts === 'object' ? user.accounts : {};
+  const a = user.accounts && typeof user.accounts === 'object' && !Array.isArray(user.accounts) ? user.accounts : {};
   for (const p of ['youtube', 'kick']) {
-    let list = a[p];
-    if (!list) list = [];
-    else if (!Array.isArray(list)) list = [list];
-    a[p] = list.filter(Boolean).map((acc) => {
-      const out = { ...acc, provider: p };
-      out.providerUserId = out.providerUserId || out.channelId;
-      out.channelId = out.channelId || out.providerUserId;
-      return out;
-    });
+    let acc = a[p];
+    if (Array.isArray(acc)) acc = acc.find(Boolean);
+    if (!acc || typeof acc !== 'object') { delete a[p]; continue; }
+    acc = { ...acc, provider: p };
+    acc.providerUserId = acc.providerUserId || acc.channelId;
+    acc.channelId = acc.channelId || acc.providerUserId;
+    a[p] = acc;
   }
   user.accounts = a;
   return user;
 }
-export const listAccounts = (u, p) => ((normalizeAccounts(u) || {}).accounts?.[p] || []);
+export const listAccounts = (u, p) => { const acc = (normalizeAccounts(u) || {}).accounts?.[p]; return acc ? [acc] : []; };
 export const allAccounts = (u) => [...listAccounts(u, 'youtube'), ...listAccounts(u, 'kick')];
 export const findAccount = (u, p, id) => listAccounts(u, p).find((a) => a.providerUserId === id || a.channelId === id);
 export const getUser = async (uid) => normalizeAccounts(await db.get(`user/${uid}`));
 export const updateUser = (uid, fn) => db.update(`user/${uid}`, (u) => fn(normalizeAccounts(u)), null);
 
 // ── Sessions ──
-export async function createSession(uid) {
+export async function createSession(uid, req) {
   const token = randomToken();
   const hash = sha256(token);
   const expiresAt = Date.now() + SESSION_TTL;
@@ -50,12 +62,12 @@ export async function createSession(uid) {
     u.sessions = [...(u.sessions || []).filter((s) => s.expiresAt > Date.now()), { hash, expiresAt }].slice(-20);
     return u;
   });
-  return cookie(SESSION(), token, SESSION_TTL / 1000);
+  return setCookie(req, SESSION, token, SESSION_TTL / 1000);
 }
 
 export async function currentUser(req) {
   if (req._user !== undefined) return req._user;
-  const t = parseCookies(req)[SESSION()];
+  const t = readCookie(req, SESSION);
   let user = null;
   req._authReason = 'no session cookie';
   if (t && t.length < 200) {
@@ -89,26 +101,41 @@ export async function renewSession(req) {
     u.sessions = (u.sessions || []).map((x) => (x.hash === s.hash ? { ...x, expiresAt } : x));
     return u;
   });
-  return cookie(SESSION(), s.token, SESSION_TTL / 1000);
+  return setCookie(req, SESSION, s.token, SESSION_TTL / 1000);
 }
 
 export async function destroySession(req) {
-  const t = parseCookies(req)[SESSION()];
+  const t = readCookie(req, SESSION);
   if (t) {
     const hash = sha256(t);
     const s = await db.get(`session/${hash}`);
     await db.del(`session/${hash}`);
     if (s?.uid) await updateUser(s.uid, (u) => (u ? { ...u, sessions: (u.sessions || []).filter((x) => x.hash !== hash) } : undefined));
   }
-  return cookie(SESSION(), '', 0);
+  return clearCookies(req, SESSION);
 }
 
-export async function destroyAllSessions(uid) {
+export async function destroyAllSessions(uid, req) {
   const u = await getUser(uid);
   await Promise.all((u?.sessions || []).map((s) => db.del(`session/${s.hash}`)));
   await updateUser(uid, (x) => (x ? { ...x, sessions: [] } : undefined));
-  return cookie(SESSION(), '', 0);
+  return clearCookies(req, SESSION);
 }
+/** "Continue as <name>" on the login page: provider + display name of the last login on this browser. */
+export function lastLoginCookie(req, user, provider) {
+  const acc = user?.accounts?.[provider];
+  const v = { p: provider, n: String(acc?.channelName || user?.name || '').slice(0, 60), a: acc?.avatar || user?.avatar || null };
+  return setCookie(req, LAST, encrypt(JSON.stringify(v)), LAST_TTL);
+}
+export function readLastLogin(req) {
+  try {
+    const v = JSON.parse(decrypt(readCookie(req, LAST)) || 'null');
+    if (!v || !['youtube', 'kick'].includes(v.p)) return null;
+    const a = typeof v.a === 'string' && /^https:\/\//.test(v.a) ? v.a : null;
+    return { provider: v.p, name: String(v.n || '').slice(0, 60), avatar: a };
+  } catch { return null; }
+}
+export const clearLastLogin = (req) => clearCookies(req, LAST);
 export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt > Date.now()).length;
 
 // ââ OAuth: state + PKCE verifier in an encrypted short-lived cookie (blocks login CSRF) ââ
@@ -116,9 +143,9 @@ export const sessionCount = (u) => (u.sessions || []).filter((s) => s.expiresAt 
  * chatWrite: YouTube â youtube.force-ssl (post in chat); Kick â chat:write.
  * botAccount: connect a separate YouTube account that posts the Egg Bot messages (not a login).
  */
-export function authorize(provider, linkUid, { chatWrite = false, botAccount = false, sharedBot = false } = {}) {
+export function authorize(provider, linkUid, { chatWrite = false, botAccount = false, sharedBot = false, consent = false, req = null } = {}) {
   const state = randomToken();
-  const payload = { state, provider, linkUid: linkUid || null, botAccount: !!botAccount || !!sharedBot, sharedBot: !!sharedBot, exp: Date.now() + STATE_TTL };
+  const payload = { state, provider, linkUid: linkUid || null, botAccount: !!botAccount || !!sharedBot, sharedBot: !!sharedBot, consent: !!consent, exp: Date.now() + STATE_TTL };
   let url;
   if (provider === 'youtube') {
     url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -129,7 +156,10 @@ export function authorize(provider, linkUid, { chatWrite = false, botAccount = f
       scope: chatWrite || botAccount || sharedBot
         ? 'https://www.googleapis.com/auth/youtube.force-ssl'
         : 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly',
-      access_type: 'offline', prompt: 'consent select_account', state,
+      // Normal sign-in: only the account picker, so a returning streamer is in with one click (Streamlabs-style).
+      // Google then sends no new refresh token; we keep the stored one. The consent screen is shown only when
+      // needed (bot/chat scopes, or no refresh token stored yet → the callback comes back with ?consent=1).
+      access_type: 'offline', prompt: consent || chatWrite || botAccount || sharedBot ? 'consent select_account' : 'select_account', state,
     });
   } else {
     payload.verifier = crypto.randomBytes(32).toString('base64url');
@@ -140,9 +170,9 @@ export function authorize(provider, linkUid, { chatWrite = false, botAccount = f
       scope: 'user:read channel:read chat:write', code_challenge: challenge, code_challenge_method: 'S256', state,
     });
   }
-  return { url: url.toString(), cookie: cookie(STATE(), encrypt(JSON.stringify(payload)), STATE_TTL / 1000) };
+  return { url: url.toString(), cookie: setCookie(req, STATE, encrypt(JSON.stringify(payload)), STATE_TTL / 1000) };
 }
-export const clearStateCookie = () => cookie(STATE(), '', 0);
+export const clearStateCookie = (req) => clearCookies(req, STATE);
 
 async function postForm(url, params) {
   const r = await tfetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(params) });
@@ -182,7 +212,7 @@ async function exchangeKick(code, verifier) {
 
 export async function handleCallback(provider, req) {
   let st = null;
-  try { st = JSON.parse(decrypt(parseCookies(req)[STATE()]) || 'null'); } catch { st = null; }
+  try { st = JSON.parse(decrypt(readCookie(req, STATE)) || 'null'); } catch { st = null; }
   if (!st || st.provider !== provider || st.exp < Date.now() || !safeEqual(st.state, req.query.state)) {
     throw new Error('Login expired or invalid â please try again.');
   }
@@ -204,7 +234,7 @@ export async function handleCallback(provider, req) {
     await log(st.linkUid, 'info', 'eggs', `YouTube bot account connected: ${profile.channelName}`);
     return { uid: st.linkUid, linked: true, bot: true };
   }
-  const uid = await saveAccount(provider, profile, st.linkUid);
+  const { uid, hasRefresh } = await saveAccount(provider, profile, st.linkUid);
   await ensureDefaultWidgets(uid);
   await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
   // The OmniChat Bot account signing in ? make it the bot automatically (needs the chat-post scope).
@@ -224,7 +254,9 @@ export async function handleCallback(provider, req) {
       await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write  reconnect Kick to grant it');
     }
   }
-  return { uid, linked: !!st.linkUid, needsBotScope };
+  // YouTube without any refresh token (first login with the one-click prompt): ask for consent once.
+  const needsConsent = provider === 'youtube' && !hasRefresh;
+  return { uid, linked: !!st.linkUid && !st.consent, needsBotScope, needsConsent };
 }
 
 async function saveAccount(provider, p, linkUid) {
@@ -244,6 +276,7 @@ async function saveAccount(provider, p, linkUid) {
     uid = u.id;
   }
   let oldLink = null;
+  let hasRefresh = false;
   await updateUser(uid, (u) => {
     if (!u) throw new Error('User not found');
     const prev = u.accounts[provider];
@@ -255,12 +288,13 @@ async function saveAccount(provider, p, linkUid) {
       refreshToken: p.tokens.refresh_token ? encrypt(p.tokens.refresh_token) : same.refreshToken || null,
       expiresAt: Date.now() + (p.tokens.expires_in || 3600) * 1000, scope: p.tokens.scope || null, createdAt: same.createdAt || Date.now(),
     };
+    hasRefresh = !!u.accounts[provider].refreshToken;
     if (!u.avatar && p.avatar) u.avatar = p.avatar;
     return u;
   });
   if (oldLink) await db.del(oldLink);
   await db.set(linkKey, { uid });
-  return uid;
+  return { uid, hasRefresh };
 }
 
 // ââ OmniChat Bot (one YouTube bot account used for every streamer) ââ

@@ -24,13 +24,19 @@ function h(tag, attrs = {}, ...kids) {
 }
 const ic = (name) => h('span', { html: icon(name), style: 'display:contents' });
 
+/** Not signed in → the login page ("Continue as …" is one click). Only real problems show an error. */
+function signedOutUrl(reason) {
+  if (!reason || reason === 'no session cookie') return '/login';
+  return '/login?error=' + encodeURIComponent(`Signed out (${reason}). Please sign in again.`);
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, { credentials: 'same-origin', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
   if (r.status === 401) {
     const me = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' }).catch(() => null);
     if (me && me.status === 401) {
       const j = await me.json().catch(() => ({}));
-      location.replace('/login?error=' + encodeURIComponent(`Signed out (${j.reason || 'session ended'}). Please sign in again.`));
+      location.replace(signedOutUrl(j.reason));
       throw new Error('Signed out');
     }
     throw new Error('Connection problem — please try again');
@@ -1232,7 +1238,7 @@ async function boot() {
   if (params.get('error')) { toast(params.get('error'), 'err'); history.replaceState(null, '', '/' + location.hash); }
 
   connectLive('/api/poll', {
-    onUnauthorized: (reason) => location.replace('/login?error=' + encodeURIComponent(`Signed out (${reason || 'session ended'}). Please sign in again.`)),
+    onUnauthorized: (reason) => location.replace(signedOutUrl(reason)),
     onStatus: (ok) => { serverOk = ok; renderStatus(); },
     onState: (st) => {
       liveState = st;

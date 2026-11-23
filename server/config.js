@@ -5,7 +5,11 @@ const num = (v, d) => (v !== undefined && v !== '' && !Number.isNaN(Number(v)) ?
 
 export const config = {
   // Netlify sets URL to the site's primary URL. APP_URL overrides it (custom domain / local dev).
-  get appUrl() { return (e.APP_URL || e.URL || `http://localhost:${e.PORT || 3002}`).replace(/\/+$/, ''); },
+  // Vercel: falls back to the production domain (VERCEL_PROJECT_PRODUCTION_URL) when APP_URL is not set.
+  get appUrl() {
+    const vercel = e.VERCEL_PROJECT_PRODUCTION_URL || e.VERCEL_URL;
+    return (e.APP_URL || e.URL || (vercel ? `https://${vercel}` : '') || `http://localhost:${e.PORT || 3002}`).trim().replace(/\/+$/, '');
+  },
   get appSecret() { return e.APP_SECRET || ''; },
   google: { get clientId() { return e.GOOGLE_CLIENT_ID; }, get clientSecret() { return e.GOOGLE_CLIENT_SECRET; } },
   kick: { get clientId() { return e.KICK_CLIENT_ID; }, get clientSecret() { return e.KICK_CLIENT_SECRET; } },
