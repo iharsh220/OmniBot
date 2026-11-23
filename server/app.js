@@ -19,7 +19,7 @@ import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickBotReady } from './kick.js';
 import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCookie, readLastLogin, clearLastLogin } from './auth.js';
 import { normalizeSettings } from '../public/js/settings.js';
-import { highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
+import { numberAlerts, testAlert, highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -110,6 +110,7 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
   try { payload = JSON.parse(raw); } catch { return res.status(400).json({ error: 'Invalid JSON' }); }
   const out = await webhookToEvents(String(req.headers['kick-event-type'] || ''), payload, String(req.headers['kick-event-message-id'] || ''));
   if (out) {
+    await numberAlerts(out.uid, out.chats).catch(() => {});
     await addEvents(out.uid, { chats: out.chats, historyDays: out.user.historyDays ?? 7 });
     if (out.followersDelta) await updateUser(out.uid, (u) => { const a = u?.accounts?.kick; if (!a || a.kickFollowers == null) return undefined; a.kickFollowers += out.followersDelta; return u; });
     if (out.statePatch) await db.update(`live/${out.uid}`, (L) => { L.kick = { ...(L.kick || {}), ...out.statePatch }; return L; }, { kick: {} });
@@ -421,6 +422,7 @@ api.post('/tools/highlight', ah(async (req, res) => {
   const msg = await highlightMessage(req.user.id, id);
   res.json({ ok: true, id: msg.id });
 }));
+api.post('/tools/test-alert', ah(async (req, res) => { await testAlert(req.user.id, String(req.body?.type || '')); res.json({ ok: true }); }));
 api.delete('/tools/highlight', ah(async (req, res) => { await clearHighlight(req.user.id); res.json({ ok: true }); }));
 api.post('/tools/poll', ah(async (req, res) => {
   const poll = await startPoll(req.user.id, req.body || {});

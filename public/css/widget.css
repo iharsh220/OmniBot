@@ -595,3 +595,9 @@
 .oc-popt.win { box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 50%, transparent); }
 .oc-popt.win .oc-ptext::after { content: '  🏆'; }
 .oc-pfoot { display: flex; justify-content: space-between; gap: 1em; font-size: .8em; opacity: .75; margin-top: .1em; }
+
+.oc-count { margin-left: auto; padding: .25em .6em; border-radius: 999px; background: color-mix(in srgb, var(--rc) 22%, transparent); color: var(--rc); font-size: .9em; letter-spacing: .04em; white-space: nowrap; }
+.oc-count + .oc-count { margin-left: .3em; }
+.ow-alerts .egg-himg.oc-custom { width: 5em; height: 5em; padding: 0; background: none; }
+.ow-alerts .egg-himg.oc-custom img { object-fit: contain; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--rc) 50%, transparent)); }
+.alert-big.ow-alerts .oc-count { margin-left: 0; }

@@ -1,5 +1,21 @@
 // Shared settings: defaults, theme presets, URL encode/decode, CSS variables.
 
+// Alert types that each get their own text, sound, custom sound URL and custom picture/GIF.
+// [settings key part, default text, default sound]. Text variables: {name} {amount} {event} {count} {platform}.
+export const ALERT_KINDS = [
+  ['Superchat', 'Super Chat · {amount}', 'coin'],
+  ['Member', '{event}', 'fanfare'],
+  ['Gift', '{event}', 'sparkle'],
+  ['KickSub', '{event}', 'levelup'],
+  ['Follow', 'New follower', 'pop'],
+  ['Greeting', '👋 Said hi', 'chime'],
+  ['Highlight', '⭐ Highlight', 'bell'],
+];
+export const ALERT_SOUNDS = ['default', 'chime', 'coin', 'fanfare', 'pop', 'sparkle', 'bell', 'levelup', 'whoosh', 'none', 'custom'];
+const alertKindDefaults = () => Object.fromEntries(ALERT_KINDS.flatMap(([k, text]) => [
+  [`alert${k}Text`, text], [`alert${k}Sound`, 'default'], [`alert${k}SoundUrl`, ''], [`alert${k}Image`, ''],
+]));
+
 export const DEFAULTS = {
   // appearance
   theme: 'glass',
@@ -73,6 +89,8 @@ export const DEFAULTS = {
   alertMessage: true, // show the viewer's message on the alert
   alertSound: true, // short chime when an alert appears
   alertVolume: 60,
+  alertCount: true, // "#3 this stream" badge on Super Chats, members, subs, follows …
+  ...alertKindDefaults(),
   // ── goal widget ──
   goalType: 'youtube-subs', // youtube-subs | kick-followers | combined
   goalTarget: 1000,
@@ -182,6 +200,7 @@ const ENUMS = {
   statsHeader: ['both', 'icon', 'name', 'none'],
   statsAlign: ['left', 'center'],
   eggsLayout: ['board', 'list', 'grouped', 'spotlight', 'events', 'alert'],
+  ...Object.fromEntries(ALERT_KINDS.map(([k]) => [`alert${k}Sound`, ALERT_SOUNDS])),
   eggsOrient: ['horizontal', 'vertical'],
   eggsAlertStyle: ['card', 'banner', 'toast', 'neon', 'glass', 'minimal', 'big'],
   eggsAlertPos: ['top', 'center', 'bottom'],
@@ -195,7 +214,22 @@ const RANGES = {
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
   eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
 };
-const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40 };
+const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40,
+  ...Object.fromEntries(ALERT_KINDS.flatMap(([k]) => [[`alert${k}Text`, 80], [`alert${k}SoundUrl`, 400], [`alert${k}Image`, 400]])),
+};
+/** Safe https URL from a settings field (custom sounds/pictures), else null. */
+export const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\/[^\s"'<>()\\]{4,400}$/.test(u.trim()) ? u.trim() : null);
+
+/** Starting looks for new widgets (merged over DEFAULTS). Used by Studio "new widget" and the server's default widgets. */
+export const WIDGET_PRESETS = {
+  chat: {},
+  stats: {},
+  eggs: { theme: 'midnight', font: 'Inter', fontSize: 15, fontWeight: 500, nameWeight: 800, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#4ade80', radius: 10, padding: 10, gap: 8, shadow: true, pageBgOpacity: 0 },
+  alerts: { theme: 'midnight', font: 'Inter', fontSize: 17, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 94, accent: '#a78bfa', radius: 14, shadow: true, pageBgOpacity: 0, eggsPopup: 8, eggsAlertStyle: 'card', eggsAlertPos: 'top', animation: 'pop' },
+  goal: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 },
+  poll: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 },
+};
+export const DEFAULT_WIDGETS = [['chat', 'My chat'], ['stats', 'My stats'], ['alerts', 'My alerts'], ['eggs', 'Egg tracker'], ['goal', 'My goal'], ['poll', 'My poll']];
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;

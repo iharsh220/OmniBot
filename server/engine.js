@@ -7,7 +7,7 @@ import { eggStep } from './eggs.js';
 import { config } from './config.js';
 import { kickStep, kickDue, postKickChat, kickBotReady } from './kick.js';
 import { updateUser, getSystemBot } from './auth.js';
-import { processChats, timerPosts } from './tools.js';
+import { processChats, timerPosts, numberAlerts } from './tools.js';
 
 const PLATFORMS = ['youtube', 'kick'];
 export const blankPlatform = () => ({
@@ -126,6 +126,7 @@ export async function tick(user) {
     return L;
   }, blankLive());
 
+  await numberAlerts(uid, chats).catch(() => {});
   await Promise.all([
     addEvents(uid, { chats, deletes, historyDays: user.historyDays ?? 7 }),
     addLogs(uid, logs),

@@ -587,3 +587,18 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 #page-tools .card { padding-bottom: 18px; }
 #page-tools .card > :not(.card-head) { margin-left: 20px; margin-right: 20px; }
 #page-tools .card > .notice { margin-bottom: 10px; }
+
+/* Studio: what-is-this box + alert test bar */
+.type-help { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--accent-soft, rgba(124,92,255,.08)); font-size: 13px; line-height: 1.4; }
+.type-help b { font-size: 14px; }
+.testbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); }
+.testbar .row { display: flex; align-items: center; }
+
+/* Live tools tabs */
+.ttabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; padding: 4px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel, transparent); width: fit-content; max-width: 100%; }
+.ttabs button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; opacity: .75; }
+.ttabs button:hover { opacity: 1; background: rgba(127,127,127,.1); }
+.ttabs button.on { opacity: 1; background: var(--accent); color: #fff; }
+.ttabs button svg { width: 16px; height: 16px; }
+.tpanel { max-width: 980px; }
+#page-tools .tchat { max-height: calc(100vh - 290px); }

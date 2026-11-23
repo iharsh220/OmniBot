@@ -1,7 +1,7 @@
 // Alerts, Goal and Poll overlays. All user text goes through textContent (XSS-safe).
 // The alert cards reuse the eggs "Alert" markup/CSS (.egg-alert > .egg-hero), so the 7 alert looks,
 // position, entry animation and exit animation work the same for both.
-import { applyRoot } from './settings.js';
+import { applyRoot, ALERT_KINDS, httpsUrl } from './settings.js';
 import { ICONS } from './render.js';
 
 const el = (tag, cls, text) => {
@@ -14,17 +14,14 @@ const safeImg = (u) => (typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u
 const fmtN = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
 
 // ── Alerts ──
-const ALERT_TYPES = {
-  superchat: { color: '#ffb300', label: (m) => `Super Chat${m.amount ? ` · ${m.amount}` : ''}`, setting: 'alertSuperchat' },
-  sticker: { color: '#ff7aa8', label: (m) => `Super Sticker${m.amount ? ` · ${m.amount}` : ''}`, setting: 'alertSuperchat' },
-  member: { color: '#2ecc71', label: () => 'New member', setting: 'alertMember' },
-  milestone: { color: '#2ecc71', label: (m) => m.eventText || 'Member milestone', setting: 'alertMember' },
-  gift: { color: '#a855f7', label: (m) => m.eventText || 'Gift', setting: 'alertGift' },
-  sub: { color: '#53fc18', label: (m) => m.eventText || 'Subscribed!', setting: 'alertKickSub' },
-  follow: { color: '#38bdf8', label: () => 'New follower', setting: 'alertFollow' },
-  greeting: { color: '#38bdf8', label: () => '👋 Said hi', setting: 'alertGreeting' },
-  highlight: { color: null, label: () => '⭐ Highlight', setting: 'alertHighlight' },
-};
+// alert type → settings key part (ALERT_KINDS in settings.js) + colour + fallback icon
+const KIND_OF = { superchat: 'Superchat', sticker: 'Superchat', member: 'Member', milestone: 'Member', gift: 'Gift', sub: 'KickSub', follow: 'Follow', greeting: 'Greeting', highlight: 'Highlight' };
+const COLOR = { superchat: '#ffb300', sticker: '#ff7aa8', member: '#2ecc71', milestone: '#2ecc71', gift: '#a855f7', sub: '#53fc18', follow: '#38bdf8', greeting: '#38bdf8', highlight: null };
+const ICON = { superchat: '💰', sticker: '💖', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', follow: '💚', greeting: '👋', highlight: '⭐' };
+const DEFAULT_EVENT = { superchat: 'Super Chat', sticker: 'Super Sticker', member: 'New member!', milestone: 'Member milestone', gift: 'Gift!', sub: 'Subscribed!', follow: 'Followed!', greeting: 'Said hi', highlight: 'Highlight' };
+const DEFAULT_SOUND = Object.fromEntries(ALERT_KINDS.map(([k, , snd]) => [k, snd]));
+const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd']; const v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+
 /** Alert type of a chat-stream message (older messages have no `alert` field). */
 export function alertType(m) {
   if (!m) return null;
@@ -37,25 +34,81 @@ export function alertType(m) {
   return null;
 }
 
+// ── Sounds: a different built-in sound per alert kind (WebAudio, no files), or the streamer's own URL ──
 let audioCtx = null;
-function chime(volume) {
+function synth(name, volume) {
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const t = audioCtx.currentTime;
-    const gain = audioCtx.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume / 100 * 0.35), t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
-    gain.connect(audioCtx.destination);
-    [880, 1318.5].forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(f, t + i * 0.12);
-      o.connect(gain);
-      o.start(t + i * 0.12);
-      o.stop(t + 0.9);
-    });
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    const ctx = audioCtx;
+    const t0 = ctx.currentTime + 0.01;
+    const out = ctx.createGain();
+    out.gain.value = Math.max(0, Math.min(1, volume / 100)) * 0.5;
+    out.connect(ctx.destination);
+    const tone = (freq, start, dur, { type = 'sine', to = null, vol = 0.6 } = {}) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0 + start);
+      if (to) o.frequency.exponentialRampToValueAtTime(to, t0 + start + dur);
+      g.gain.setValueAtTime(0.0001, t0 + start);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + start + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+      o.connect(g); g.connect(out);
+      o.start(t0 + start); o.stop(t0 + start + dur + 0.05);
+    };
+    const S = {
+      chime: () => { tone(880, 0, 0.8); tone(1318.5, 0.12, 0.8); },
+      coin: () => { tone(988, 0, 0.09, { type: 'square', vol: 0.35 }); tone(1319, 0.08, 0.5, { type: 'square', vol: 0.35 }); },
+      fanfare: () => { [523, 659, 784, 1046].forEach((f, i) => tone(f, i * 0.11, i === 3 ? 0.7 : 0.18, { type: 'triangle' })); },
+      pop: () => { tone(420, 0, 0.12, { to: 980 }); tone(980, 0.1, 0.15, { vol: 0.25 }); },
+      sparkle: () => { [2093, 2637, 3136, 2349, 2794, 3520].forEach((f, i) => tone(f, i * 0.06, 0.25, { vol: 0.3 })); },
+      bell: () => { tone(1046.5, 0, 1.4, { vol: 0.5 }); tone(2093, 0, 0.9, { vol: 0.15 }); tone(1568, 0.02, 1.1, { vol: 0.12 }); },
+      levelup: () => { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, i * 0.07, i === 4 ? 0.5 : 0.1, { type: 'square', vol: 0.25 })); },
+      whoosh: () => {
+        const len = Math.floor(ctx.sampleRate * 0.6);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = ctx.createBufferSource();
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.Q.value = 1.2;
+        bp.frequency.setValueAtTime(300, t0); bp.frequency.exponentialRampToValueAtTime(3000, t0 + 0.5);
+        src.buffer = buf; src.connect(bp); bp.connect(out); src.start(t0);
+      },
+    };
+    (S[name] || S.chime)();
   } catch { /* no audio in this browser */ }
+}
+/** Plays the sound configured for this alert kind. */
+export function playAlertSound(s, type) {
+  const K = KIND_OF[type];
+  if (!K || !s.alertSound) return;
+  const choice = s[`alert${K}Sound`] || 'default';
+  if (choice === 'none') return;
+  if (choice === 'custom') {
+    const url = httpsUrl(s[`alert${K}SoundUrl`]);
+    if (url) {
+      try { const a = new Audio(url); a.volume = Math.max(0, Math.min(1, s.alertVolume / 100)); a.play().catch(() => synth(DEFAULT_SOUND[K], s.alertVolume)); } catch { /* ignore */ }
+      return;
+    }
+  }
+  synth(choice === 'default' || choice === 'custom' ? DEFAULT_SOUND[K] : choice, s.alertVolume);
+}
+
+/** A fake alert of one type (Studio "Test" buttons). */
+export function sampleAlert(type) {
+  const base = { id: `sample-${type}-${Date.now()}`, ts: Date.now(), platform: 'youtube', alert: type, n: Math.floor(Math.random() * 5) + 1, author: { name: 'PixelPanda', avatar: null }, parts: [] };
+  const msg = (t) => [{ type: 'text', text: t }];
+  return {
+    superchat: { ...base, kind: 'superchat', amount: '₹500.00', parts: msg('Bhai op stream! Keep it up ❤️') },
+    member: { ...base, kind: 'member', eventText: 'New member!' },
+    gift: { ...base, kind: 'member', eventText: 'Gifted 5 memberships', author: { name: 'CaptainChai' } },
+    sub: { ...base, kind: 'sub', platform: 'kick', eventText: 'Resubscribed (3 months)!', author: { name: 'TurboTaco' } },
+    follow: { ...base, kind: 'follow', platform: 'kick', eventText: 'Followed!', author: { name: 'ByteBandit' } },
+    greeting: { ...base, kind: 'greeting', eventText: '👋 said hi', author: { name: 'Neha' } },
+    highlight: { ...base, kind: 'highlight', author: { name: 'zara_streams' }, parts: msg('Can you show the Divine egg spot again?') },
+  }[type];
 }
 
 export class AlertsView {
@@ -65,7 +118,7 @@ export class AlertsView {
     this.current = null;
     this.until = 0;
     this.leaving = false;
-    this.preview = false; // Studio: no sound, never empty
+    this.preview = false; // Studio: no automatic sound, never empty
     this.last = null; // newest alert seen (preview / "always visible")
     this.setSettings(settings);
   }
@@ -76,21 +129,31 @@ export class AlertsView {
     this.render();
   }
   enabled(m) {
-    const t = ALERT_TYPES[alertType(m)];
-    return !!t && this.s[t.setting] !== false;
+    const K = KIND_OF[alertType(m)];
+    return !!K && this.s[`alert${K}`] !== false;
   }
-  /** New message from the live stream. Non-alert messages are ignored. */
-  add(m) {
+  /** New message from the live stream. Non-alert messages are ignored. `sound` forces the sound (Studio tests). */
+  add(m, { sound = false } = {}) {
     if (m?.kind === 'highlight-clear') {
       this.queue = this.queue.filter((x) => alertType(x) !== 'highlight');
       if (this.current && alertType(this.current) === 'highlight') this.hideNow();
       return;
     }
     if (!this.enabled(m)) return;
+    m.forceSound = sound;
     this.last = m;
     this.queue.push(m);
     if (this.queue.length > 10) this.queue = this.queue.slice(-10);
     this.advance();
+  }
+  /** Studio test button: show + play one alert of this type now (skips the queue). */
+  test(type) {
+    const m = sampleAlert(type);
+    if (!m) return;
+    this.queue = [];
+    this.current = null;
+    this.leaving = false;
+    this.add(m, { sound: true });
   }
   hideNow() {
     clearTimeout(this.timer);
@@ -106,7 +169,7 @@ export class AlertsView {
       this.current = next;
       this.leaving = false;
       this.fresh = next.id;
-      if (this.s.alertSound && !this.preview) chime(this.s.alertVolume);
+      if (!this.preview || next.forceSound) playAlertSound(this.s, alertType(next));
       clearTimeout(this.timer);
       if (sec > 0) {
         this.until = Date.now() + sec * 1000;
@@ -115,23 +178,36 @@ export class AlertsView {
       this.render();
     } else if (sec > 0 && this.current && !this.leaving) this.hideNow();
   }
+  label(m, type, K) {
+    const tpl = String(this.s[`alert${K}Text`] ?? '').trim() || ALERT_KINDS.find(([k]) => k === K)?.[1] || '{event}';
+    return tpl
+      .replace(/\{name\}/gi, m.author?.name || 'Someone')
+      .replace(/\{amount\}/gi, m.amount || '')
+      .replace(/\{event\}/gi, m.eventText || DEFAULT_EVENT[type] || '')
+      .replace(/\{count\}/gi, m.n ? ordinal(m.n) : '')
+      .replace(/\{platform\}/gi, m.platform === 'kick' ? 'Kick' : 'YouTube')
+      .replace(/\s*·\s*$/, '').replace(/\s+/g, ' ').trim();
+  }
   card(m) {
     const type = alertType(m);
-    const t = ALERT_TYPES[type];
+    const K = KIND_OF[type];
     const card = el('div', `egg-hero oc-alert oc-${type}${m.id === this.fresh ? ' enter' : ''}`);
-    card.style.setProperty('--rc', t.color || 'var(--accent)');
-    const pic = el('span', 'egg-himg' + (safeImg(m.author?.avatar) ? ' has-img oc-avatar' : ''));
-    const src = safeImg(m.author?.avatar);
+    card.style.setProperty('--rc', COLOR[type] || 'var(--accent)');
+    const custom = httpsUrl(this.s[`alert${K}Image`]);
+    const src = custom || safeImg(m.author?.avatar);
+    const pic = el('span', 'egg-himg' + (src ? ` has-img ${custom ? 'oc-custom' : 'oc-avatar'}` : ''));
     if (src) {
       const img = document.createElement('img');
       img.src = src; img.alt = ''; img.referrerPolicy = 'no-referrer';
-      img.onerror = () => { pic.classList.remove('has-img'); pic.textContent = type === 'follow' ? '💚' : '⭐'; };
+      img.onerror = () => { pic.className = 'egg-himg'; pic.textContent = ICON[type] || '⭐'; };
       pic.append(img);
-    } else pic.textContent = { superchat: '💰', sticker: '💖', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', follow: '💚', greeting: '👋', highlight: '⭐' }[type] || '⭐';
+    } else pic.textContent = ICON[type] || '⭐';
     const kicker = el('div', 'egg-hkicker');
     const plat = el('span', 'oc-plat');
     plat.innerHTML = m.platform === 'kick' ? ICONS.kick : m.platform === 'youtube' ? ICONS.youtube : '';
-    kicker.append(plat, el('span', '', t.label(m)));
+    kicker.append(plat, el('span', '', this.label(m, type, K)));
+    if (this.s.alertCount && m.n && type !== 'highlight') kicker.append(el('span', 'oc-count', `#${m.n} this stream`));
+    if (m.test) kicker.append(el('span', 'oc-count', 'TEST'));
     const body = el('div', 'egg-hbody');
     body.append(kicker, el('div', 'egg-htitle', m.author?.name || 'Someone'));
     if (this.s.alertMessage) {

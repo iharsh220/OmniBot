@@ -5,6 +5,7 @@ import { encrypt, decrypt, randomId, randomToken, sha256, safeEqual } from './cr
 import { parseCookies, cookie, isSecureReq } from './http.js';
 import * as db from './store.js';
 import { log } from './feed.js';
+import { normalizeSettings, WIDGET_PRESETS, DEFAULT_WIDGETS } from '../public/js/settings.js';
 
 const SESSION_TTL = 30 * 86_400_000;
 const STATE_TTL = 10 * 60_000;
@@ -394,17 +395,24 @@ export async function disconnectYouTubeBot(uid) {
   await updateUser(uid, (u) => { if (!u) return undefined; delete u.ytBot; return u; });
 }
 
+/**
+ * Every streamer gets one ready-made widget of each type (chat, stats, alerts, eggs, goal, poll), so
+ * nobody starts with an empty Studio. Runs once per account (`defaultsV2`): a widget the streamer
+ * deletes later is not re-created. Existing accounts only get the types they don't have yet.
+ */
 export async function ensureDefaultWidgets(uid) {
   const u = await getUser(uid);
-  if (!u || u.widgets?.length) return;
+  if (!u || u.defaultsV2) return;
+  const have = new Set((await Promise.all((u.widgets || []).map((id) => db.get(`widget/${id}`)))).filter(Boolean).map((w) => w.type));
   const now = Date.now();
   const ids = [];
-  for (const [type, name] of [['chat', 'My chat'], ['stats', 'My stats']]) {
+  for (const [type, name] of DEFAULT_WIDGETS) {
+    if (have.has(type)) continue;
     const id = randomId(9);
-    await db.set(`widget/${id}`, { id, uid, type, name, settings: {}, createdAt: now, updatedAt: now });
+    await db.set(`widget/${id}`, { id, uid, type, name, settings: normalizeSettings(WIDGET_PRESETS[type] || {}), createdAt: now, updatedAt: now });
     ids.push(id);
   }
-  await updateUser(uid, (x) => (x ? { ...x, widgets: [...(x.widgets || []), ...ids] } : undefined));
+  await updateUser(uid, (x) => (x ? { ...x, defaultsV2: true, widgets: [...(x.widgets || []), ...ids].slice(0, 50) } : undefined));
 }
 
 // ââ Access tokens (auto refresh + persist) ââ

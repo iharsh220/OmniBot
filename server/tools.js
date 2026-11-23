@@ -25,6 +25,47 @@ export async function clearHighlight(uid) {
   await pushEvent(uid, { id: `hlx-${Date.now()}`, kind: 'highlight-clear', alert: 'highlight-clear', ts: Date.now(), platform: 'system', author: { name: '' }, parts: [] });
 }
 
+// ── Alert numbers: "#3 this stream" per kind (Super Chats, members, subs, follows …) ──
+const COUNT_KIND = { superchat: 'superchat', sticker: 'superchat', member: 'member', milestone: 'member', gift: 'gift', sub: 'sub', follow: 'follow', greeting: 'greeting' };
+/** Adds `n` (number of that kind this stream) to alert messages. Counts reset after 4 h without alerts. */
+export async function numberAlerts(uid, chats) {
+  const list = (chats || []).filter((m) => COUNT_KIND[m.alert]);
+  if (!list.length) return;
+  await db.update(`alertcount/${uid}`, (C) => {
+    if (Date.now() - (C.last || 0) > 4 * 3600_000) C.counts = {};
+    C.counts = C.counts || {};
+    C.seen = C.seen || [];
+    for (const m of list) {
+      if (C.seen.includes(m.id)) continue;
+      const k = COUNT_KIND[m.alert];
+      C.counts[k] = (C.counts[k] || 0) + 1;
+      m.n = C.counts[k];
+      C.seen.push(m.id);
+    }
+    C.seen = C.seen.slice(-200);
+    C.last = Date.now();
+    return C;
+  }, { counts: {}, last: 0, seen: [] });
+}
+
+/** "Send to OBS": a fake alert of one kind, straight into the live stream (marked as a test). */
+const TEST = {
+  superchat: { kind: 'superchat', amount: '₹500.00', text: 'This is a test Super Chat 🎉' },
+  member: { kind: 'member', eventText: 'New member!' },
+  gift: { kind: 'member', eventText: 'Gifted 5 memberships' },
+  sub: { kind: 'sub', platform: 'kick', eventText: 'Resubscribed (3 months)!' },
+  follow: { kind: 'follow', platform: 'kick', eventText: 'Followed!' },
+  greeting: { kind: 'greeting', eventText: '👋 said hi' },
+  highlight: { kind: 'highlight', text: 'This is how a highlighted chat message looks' },
+};
+export async function testAlert(uid, type) {
+  const t = TEST[type];
+  if (!t) throw Object.assign(new Error('Unknown alert type'), { status: 400 });
+  const msg = { id: `test-${type}-${Date.now()}`, platform: t.platform || 'youtube', ts: Date.now(), kind: t.kind, alert: type, test: true,
+    amount: t.amount, eventText: t.eventText, n: 1, author: { name: 'OmniChat Test', avatar: null }, parts: t.text ? [{ type: 'text', text: t.text }] : [] };
+  await pushEvent(uid, msg);
+}
+
 // ── Polls: viewers type "!vote 2" (or just "2") in YouTube or Kick chat ──
 export const readPoll = async (uid) => (await db.get(`poll/${uid}`)) || null;
 export function publicPoll(p) {
