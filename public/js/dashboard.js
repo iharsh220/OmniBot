@@ -886,24 +886,41 @@ function renderOverview() {
   const activity = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h3', {}, 'Recent activity'), h('div', { class: 'actions' }, h('a', { class: 'btn sm ghost', href: '#logs' }, 'View all'))), feed);
 
-  const creatorCard = h('div', { class: 'card creator-overview-card', style: 'margin-top:16px' },
-    h('div', { class: 'creator-card-main' },
-      h('div', { class: 'creator-badge-wolf' }, '🐺'),
-      h('div', { style: 'flex:1;min-width:0' },
-        h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
-          h('h3', { style: 'margin:0;font-size:15px' }, 'Created by SmartWolf'),
-          h('span', { class: 'tag ok' }, '100% Free Tool · 0% Cut')
-        ),
-        h('p', { class: 'muted tiny', style: 'margin:3px 0 0' },
-          'OmniChat is completely free for all streamers with no ads or subscriptions. If it helps your stream, you can support me with a cup of chai or coffee! ☕')
+  const creatorCard = h('div', { class: 'card creator-spotlight-card' },
+    h('div', { class: 'creator-spotlight-glow' }),
+    h('div', { class: 'creator-spotlight-content' },
+      h('div', { class: 'creator-spotlight-avatar' },
+        h('span', { class: 'spotlight-wolf' }, '🐺'),
+        h('span', { class: 'spotlight-sparkle' }, '✨')
       ),
-      h('button', { class: 'btn primary sm', type: 'button', onclick: showCreatorModal }, ic('coffee'), 'Buy Coffee / Tea')
-    ),
-    h('div', { class: 'creator-links-row' },
-      h('a', { class: 'btn sm ghost', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' }, ic('youtube'), 'YouTube @smartwolf_yt'),
-      h('a', { class: 'btn sm ghost', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' }, ic('instagram'), 'Instagram @smartwolf_yt'),
-      h('a', { class: 'btn sm ghost', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' }, ICONS.kick, 'Kick @smartwolfyt'),
-      h('a', { class: 'btn sm ghost', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' }, ic('discord'), 'Discord Wolf Pack')
+      h('div', { class: 'creator-spotlight-info' },
+        h('div', { class: 'creator-spotlight-title-row' },
+          h('h3', { class: 'creator-spotlight-title' }, 'Developed with ❤️ by SmartWolf'),
+          h('span', { class: 'tag ok' }, '100% Free Forever'),
+          h('span', { class: 'tag purple' }, '0% Platform Fee')
+        ),
+        h('p', { class: 'creator-spotlight-desc' },
+          'OmniChat is completely free for all streamers with no ads, no subscriptions, and zero cuts from your earnings. Enjoying the tool? Consider buying SmartWolf a cup of chai or coffee! ☕'),
+        h('div', { class: 'creator-spotlight-links' },
+          h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
+            ic('youtube'), h('b', {}, 'YouTube'), h('span', { class: 'cs-count' }, '27K Subs')),
+          h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
+            ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
+          h('a', { class: 'cs-pill cs-kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
+            ICONS.kick, h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
+          h('a', { class: 'cs-pill cs-disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
+            ic('discord'), h('b', {}, 'Discord'), h('span', { class: 'cs-count' }, 'Wolf Pack'))
+        )
+      ),
+      h('div', { class: 'creator-spotlight-cta' },
+        h('button', { class: 'btn creator-chai-btn', type: 'button', onclick: showCreatorModal },
+          h('span', { class: 'btn-chai-icon' }, '☕'),
+          h('div', { class: 'btn-chai-txt' },
+            h('b', {}, 'Buy a Coffee / Chai'),
+            h('span', { class: 'tiny' }, 'Support Developer')
+          )
+        )
+      )
     )
   );
 
@@ -1566,41 +1583,46 @@ function showCreatorModal() {
   const qrImg = h('img', {
     class: 'creator-qr-img',
     src: `/api/qr.svg?d=${encodeURIComponent(makeUpiUrl(currentAmount))}`,
-    alt: 'UPI QR code to support SmartWolf'
+    alt: 'UPI QR code'
   });
 
-  const payLink = h('a', {
-    class: 'btn primary creator-pay-btn',
+  const payBtn = h('a', {
+    class: 'btn primary creator-pay-now-btn',
     href: makeUpiUrl(currentAmount),
     target: '_blank',
     rel: 'noopener'
-  }, ic('rupee'), `Pay ₹${currentAmount} via UPI App`);
+  }, ic('rupee'), `Pay ₹${currentAmount} with UPI App`);
 
   const amounts = [
-    { amt: 20, label: '₹20', desc: 'Cup of Chai ☕' },
-    { amt: 50, label: '₹50', desc: 'Hot Coffee ☕' },
-    { amt: 100, label: '₹100', desc: 'Coffee & Snacks 🍩' },
-    { amt: 250, label: '₹250', desc: 'Wolf Pack 🐺' },
+    { amt: 20, icon: '☕', label: '₹20', title: 'Chai', tag: '' },
+    { amt: 50, icon: '☕', label: '₹50', title: 'Hot Coffee', tag: 'Popular' },
+    { amt: 100, icon: '🍩', label: '₹100', title: 'Chai & Snacks', tag: '' },
+    { amt: 250, icon: '🐺', label: '₹250', title: 'Wolf Pack', tag: 'VIP' },
   ];
 
-  const chipsContainer = h('div', { class: 'creator-amt-chips' });
+  const chipsContainer = h('div', { class: 'creator-tier-grid' });
   const renderChips = () => {
     chipsContainer.replaceChildren(
       ...amounts.map((opt) => {
         const isSel = currentAmount === opt.amt;
         return h('button', {
           type: 'button',
-          class: `creator-amt-chip${isSel ? ' active' : ''}`,
+          class: `creator-tier-card${isSel ? ' active' : ''}`,
           onclick: () => {
             currentAmount = opt.amt;
             const url = makeUpiUrl(currentAmount);
             qrImg.src = `/api/qr.svg?d=${encodeURIComponent(url)}`;
-            payLink.href = url;
-            payLink.textContent = '';
-            payLink.append(ic('rupee'), `Pay ₹${currentAmount} via UPI App`);
+            payBtn.href = url;
+            payBtn.textContent = '';
+            payBtn.append(ic('rupee'), `Pay ₹${currentAmount} with UPI App`);
             renderChips();
           }
-        }, h('b', {}, opt.label), h('span', { class: 'tiny' }, opt.desc));
+        },
+        opt.tag ? h('span', { class: 'creator-tier-tag' }, opt.tag) : null,
+        h('span', { class: 'creator-tier-icon' }, opt.icon),
+        h('b', { class: 'creator-tier-amt' }, opt.label),
+        h('span', { class: 'creator-tier-title' }, opt.title)
+        );
       })
     );
   };
@@ -1608,69 +1630,93 @@ function showCreatorModal() {
 
   const copyBtn = h('button', {
     type: 'button',
-    class: 'btn sm',
-    onclick: () => copyText(upiId)
-  }, ic('copy'), 'Copy UPI ID');
+    class: 'btn sm creator-copy-btn',
+    onclick: async () => {
+      await copyText(upiId);
+      copyBtn.classList.add('copied');
+      copyBtn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        copyBtn.classList.remove('copied');
+        copyBtn.replaceChildren(ic('copy'), 'Copy UPI');
+      }, 2000);
+    }
+  }, ic('copy'), 'Copy UPI');
 
   bg = h('div', { class: 'modal-bg', role: 'dialog', 'aria-modal': 'true', onclick: (e) => { if (e.target === bg) close(); } },
-    h('div', { class: 'modal creator-modal' },
-      h('div', { class: 'creator-modal-head' },
-        h('div', { class: 'creator-head-left' },
-          h('div', { class: 'creator-wolf-avatar' }, '🐺'),
-          h('div', {},
-            h('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' },
-              h('h3', { style: 'margin:0;font-size:18px' }, 'Created by SmartWolf'),
-              h('span', { class: 'tag ok' }, 'Owner & Developer')
+    h('div', { class: 'modal creator-modal-pro' },
+      // Top banner
+      h('div', { class: 'creator-banner' },
+        h('div', { class: 'creator-banner-glow' }),
+        h('button', { type: 'button', class: 'btn sm ghost icon creator-close-btn', title: 'Close', onclick: close }, '✕'),
+        h('div', { class: 'creator-profile-header' },
+          h('div', { class: 'creator-avatar-wrap' },
+            h('div', { class: 'creator-avatar-wolf' }, '🐺'),
+            h('span', { class: 'creator-avatar-badge', title: 'Verified Creator' }, '✓')
+          ),
+          h('div', { class: 'creator-profile-meta' },
+            h('div', { class: 'creator-name-row' },
+              h('h2', { class: 'creator-name' }, 'SmartWolf'),
+              h('span', { class: 'creator-role-tag' }, 'Owner & Developer'),
+              h('span', { class: 'creator-free-pill' }, '100% Free Tool')
             ),
-            h('p', { class: 'muted tiny', style: 'margin:3px 0 0' },
-              'IT pro by day, Roblox streamer by passion 🐺 · Blox Fruits & Steal An Egg')
+            h('p', { class: 'creator-tagline' }, 'IT pro by day, Roblox streamer by passion 🐺 · Blox Fruits & Steal An Egg'),
+            h('div', { class: 'creator-social-pills' },
+              h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
+                ic('youtube'), h('b', {}, 'YouTube'), h('span', { class: 'cs-count' }, '27K Subs')),
+              h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
+                ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
+              h('a', { class: 'cs-pill cs-kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
+                ICONS.kick, h('b', {}, 'Kick'), h('span', { class: 'cs-count' }, 'smartwolfyt')),
+              h('a', { class: 'cs-pill cs-disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
+                ic('discord'), h('b', {}, 'Discord'), h('span', { class: 'cs-count' }, 'Wolf Pack'))
+            )
           )
-        ),
-        h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Close', onclick: close }, '✕')
-      ),
-      h('div', { class: 'creator-free-callout' },
-        h('span', { style: 'font-size:24px' }, '🎉'),
-        h('div', {},
-          h('b', {}, 'OmniChat is 100% Free Forever'),
-          h('p', { class: 'muted tiny', style: 'margin:2px 0 0' },
-            'Zero platform fee, no cuts from your donations, and no paid subscriptions. If this tool helps your live stream, consider supporting me with a cup of tea or coffee! ☕')
         )
       ),
-      h('div', { class: 'creator-socials-grid' },
-        h('a', { class: 'creator-social-btn yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
-          ic('youtube'), h('div', {}, h('b', {}, 'YouTube Channel'), h('span', { class: 'tiny' }, '@smartwolf_yt · ~27K subs'))),
-        h('a', { class: 'creator-social-btn insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
-          ic('instagram'), h('div', {}, h('b', {}, 'Instagram'), h('span', { class: 'tiny' }, '@smartwolf_yt'))),
-        h('a', { class: 'creator-social-btn kick', href: 'https://kick.com/smartwolfyt', target: '_blank', rel: 'noopener' },
-          ICONS.kick, h('div', {}, h('b', {}, 'Kick Stream'), h('span', { class: 'tiny' }, 'kick.com/smartwolfyt'))),
-        h('a', { class: 'creator-social-btn disc', href: 'https://discord.gg/smartwolfyt', target: '_blank', rel: 'noopener' },
-          ic('discord'), h('div', {}, h('b', {}, 'Discord Community'), h('span', { class: 'tiny' }, 'discord.gg/smartwolfyt')))
-      ),
-      h('div', { class: 'creator-coffee-box' },
-        h('div', { class: 'coffee-box-head' },
-          h('span', { style: 'font-size:20px' }, '☕'),
+
+      // Support with Chai / Coffee Box
+      h('div', { class: 'creator-coffee-section' },
+        h('div', { class: 'creator-section-head' },
+          h('div', { class: 'creator-coffee-icon-box' }, '☕'),
           h('div', {},
-            h('b', {}, 'Buy SmartWolf a Cup of Tea / Coffee'),
-            h('p', { class: 'muted tiny', style: 'margin:1px 0 0' }, 'Scan QR code with GPay, PhonePe, Paytm or any UPI app')
+            h('h3', { class: 'creator-section-title' }, 'Buy SmartWolf a Cup of Chai or Coffee'),
+            h('p', { class: 'creator-section-desc' }, 'Direct UPI · 0% platform cuts · Keeps OmniChat fast & 100% free for everyone')
           )
         ),
+
+        // Tiers
         chipsContainer,
-        h('div', { class: 'creator-qr-row' },
-          h('div', { class: 'creator-qr-wrap' }, qrImg),
-          h('div', { class: 'creator-qr-meta' },
-            h('div', { class: 'creator-upi-id-box' },
-              h('span', { class: 'tiny muted' }, 'UPI ID:'),
-              h('code', { class: 'creator-upi-code' }, upiId),
+
+        // QR Code & UPI Details
+        h('div', { class: 'creator-pay-card' },
+          h('div', { class: 'creator-qr-container' },
+            h('div', { class: 'creator-qr-frame' }, qrImg),
+            h('span', { class: 'creator-qr-hint' }, 'Scan with phone camera')
+          ),
+          h('div', { class: 'creator-pay-details' },
+            h('div', { class: 'creator-upi-field' },
+              h('span', { class: 'creator-upi-label' }, 'UPI ID'),
+              h('code', { class: 'creator-upi-val' }, upiId),
               copyBtn
             ),
-            payLink,
-            h('p', { class: 'muted tiny', style: 'margin:8px 0 0;line-height:1.4' },
-              'Direct-to-bank UPI · 100% goes to hosting servers & continuous updates for the streaming community. Dil se shukriya! 💜')
+            payBtn,
+            h('div', { class: 'creator-apps-row' },
+              h('span', { class: 'app-pill' }, 'GPay'),
+              h('span', { class: 'app-pill' }, 'PhonePe'),
+              h('span', { class: 'app-pill' }, 'Paytm'),
+              h('span', { class: 'app-pill' }, 'BHIM'),
+              h('span', { class: 'app-pill' }, 'Any UPI')
+            ),
+            h('p', { class: 'creator-shukriya-note' },
+              '❤️ Dil se shukriya! Every contribution directly supports cloud server bills and continuous feature updates.')
           )
         )
       ),
-      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:16px' },
-        h('button', { type: 'button', class: 'btn primary', onclick: close }, 'Awesome, Got it!')
+
+      // Footer
+      h('div', { class: 'creator-modal-footer' },
+        h('span', { class: 'creator-footer-note' }, 'OmniChat is free forever with zero ads & zero paywalls.'),
+        h('button', { type: 'button', class: 'btn primary sm', onclick: close }, 'Awesome, Got it!')
       )
     )
   );
@@ -1858,15 +1904,15 @@ async function donateCard() {
     h('div', { class: 'tmanual' }, mName, mAmount, mMsg, h('button', { type: 'button', class: 'btn primary', onclick: async () => {
       try { await api('/api/tools/donate/manual', { method: 'POST', body: JSON.stringify({ name: mName.value, amount: Number(mAmount.value), message: mMsg.value }) }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); }
     } }, ic('send'), 'Show alert')));
-  const creatorBanner = h('div', { class: 'card creator-sub-banner', style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap' },
-    h('div', { style: 'display:flex;align-items:center;gap:10px' },
-      h('span', { style: 'font-size:24px' }, '☕'),
+  const creatorBanner = h('div', { class: 'card creator-sub-banner' },
+    h('div', { class: 'creator-sub-banner-left' },
+      h('span', { class: 'creator-sub-coffee-icon' }, '☕'),
       h('div', {},
-        h('b', {}, 'OmniChat takes 0% cut from your donations · 100% Free Tool'),
-        h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created with ❤️ by SmartWolf. If you love this project, consider buying me a cup of tea or coffee!')
+        h('b', { class: 'creator-sub-title' }, 'OmniChat takes 0% cut from your donations — 100% Free Tool'),
+        h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created with ❤️ by SmartWolf. If you love this project, consider supporting the developer with a cup of tea or coffee!')
       )
     ),
-    h('button', { type: 'button', class: 'btn sm', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕')
+    h('button', { type: 'button', class: 'btn sm creator-banner-btn', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf ☕')
   );
   return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual, creatorBanner);
 }
