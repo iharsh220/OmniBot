@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Unified YouTube + Kick live chat & stats overlay for OBS (Express API + plain HTML/CSS/JS, deploys to Netlify)",
+  "description": "Unified YouTube + Kick live chat & stats overlay for OBS (Express API + plain HTML/CSS/JS, deploys to Vercel)",
   "engines": {
     "node": "26.x"
   },
@@ -12,9 +12,7 @@
     "start": "node server/local.js"
   },
   "dependencies": {
-    "@netlify/blobs": "^11.1.9",
     "express": "^4.22.3",
-    "localtunnel": "^2.0.2",
-    "serverless-http": "^3.2.0"
+    "localtunnel": "^2.0.2"
   }
 }

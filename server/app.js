@@ -1,5 +1,5 @@
-﻿// OmniChat API as an Express app. Used by server/local.js (local dev) and by
-// netlify/functions/api.mjs (Netlify, via serverless-http).
+﻿// OmniChat API as an Express app. Used by server/local.js (local dev) and by Vercel
+// (root app.js/index.js and api/*.mjs).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
 import { securityHeaders, sameOrigin, limit, ah, parseCookies, reqHost } from './http.js';
@@ -24,9 +24,7 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', true);
 
-// When running as a Netlify Function the path may arrive prefixed with the function path.
 app.use((req, _res, next) => {
-  req.url = req.url.replace(/^\/\.netlify\/functions\/api/, '') || '/';
   // Vercel catch-all rewrites /auth/* and /webhooks/* into /api/auth/* and /api/webhooks/*.
   req.url = req.url.replace(/^\/api\/(?=auth(?:\/|$)|webhooks(?:\/|$))/, '/');
   next();
@@ -174,7 +172,7 @@ app.post('/api/providers/forget', (req, res) => {
 const authed = ah(async (req, res, next) => {
   const user = await currentUser(req);
   if (!user) {
-    // Shows up in Netlify â†’ Logs â†’ Functions â†’ api, to diagnose unexpected sign-outs.
+    // Shows up in Vercel → Logs, to diagnose unexpected sign-outs.
     console.warn(`[auth] 401 ${req.method} ${req.path}: ${req._authReason} (cookies: ${Object.keys(parseCookies(req)).join(',') || 'none'})`);
     return res.status(401).json({ error: 'Not logged in', reason: req._authReason });
   }

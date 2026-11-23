@@ -1,7 +1,6 @@
 ﻿import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { getStore } from '@netlify/blobs';
 
 
 // ── local JSON file ──
@@ -28,15 +27,6 @@ const local = {
     return { modified: true };
   },
   async delete(k) { delete load()[k]; save(); },
-};
-
-// ── Netlify Blobs ──
-// Never cache the store object: Netlify gives each invocation a short-lived Blobs token.
-const netlify = {
-  async get(k) { return getStore({ name: 'omnichat', consistency: 'strong' }).get(k, { type: 'json' }); },
-  async getWithMetadata(k) { return getStore({ name: 'omnichat', consistency: 'strong' }).getWithMetadata(k, { type: 'json' }); },
-  async setJSON(k, v, o) { return getStore({ name: 'omnichat', consistency: 'strong' }).setJSON(k, v, o); },
-  async delete(k) { return getStore({ name: 'omnichat', consistency: 'strong' }).delete(k); },
 };
 
 // ── Upstash Redis / Vercel KV (REST) ──
@@ -116,16 +106,14 @@ const redisStore = {
 export function storeMode() {
   const m = String(process.env.OMNICHAT_STORE || '').toLowerCase();
   if (m === 'local') return 'local';
-  if (m === 'blobs') return 'blobs';
   if (['kv', 'redis', 'upstash', 'vercel'].includes(m) || (kvUrl() && kvToken())) return 'kv';
-  if (process.env.NETLIFY) return 'blobs';
   if (process.env.VERCEL) return 'missing';
   return 'local';
 }
 const backend = () => {
   const m = storeMode();
   if (m === 'missing') throw Object.assign(new Error('Storage is not configured: connect Upstash Redis in Vercel (UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN)'), { status: 500 });
-  return m === 'kv' ? redisStore : m === 'blobs' ? netlify : local;
+  return m === 'kv' ? redisStore : local;
 };
 
 export const get = (k) => backend().get(k);

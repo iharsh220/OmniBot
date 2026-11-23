@@ -1,4 +1,4 @@
-// Live feed by polling the API (works on Netlify Functions) + demo generator for previews.
+// Live feed by polling the API (works on serverless functions) + demo generator for previews.
 //
 // connectLive(url, handlers, { v, interval }) polls `url?c=<cursor>&v=<version>&l=<logCursor>`.
 // Handlers: onHistory(list) · onChat(msg) · onDelete(id) · onState(state, only when changed)

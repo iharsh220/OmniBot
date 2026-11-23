@@ -32,13 +32,14 @@
   </ul>
 
   <h2>Data storage</h2>
-  <p>Data is stored in <strong>Netlify Blobs</strong> (encrypted at rest) only for your active session. You can delete your account anytime from the dashboard, which permanently removes all your data.</p>
+  <p>Data is stored in <strong>Upstash Redis</strong> (connected through Vercel). OAuth tokens are encrypted (AES-256-GCM) before they are stored. You can delete your account anytime from the dashboard, which permanently removes all your data.</p>
 
   <h2>Third-party services</h2>
   <ul>
     <li><strong>Google/YouTube APIs</strong> — for chat and channel data</li>
     <li><strong>Kick API</strong> — for chat and channel data</li>
-    <li><strong>Netlify</strong> — hosting and serverless functions</li>
+    <li><strong>Vercel</strong> — hosting and serverless functions</li>
+    <li><strong>Upstash</strong> — data storage (Redis)</li>
   </ul>
   <p>We do not use analytics, tracking, or third-party scripts.</p>
 

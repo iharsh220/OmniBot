@@ -9,7 +9,7 @@ Your **YouTube and Kick live chat in one overlay**, plus a live **viewers and su
 - 👥 **Multi-user**: every streamer connects their own channels with OAuth
 - 🌓 Light / dark / system theme · 📜 logs & chat history · 🔐 encrypted tokens
 
-**Stack:** Express API + plain HTML/CSS/JS, deployed on **Netlify** (Express runs as a Netlify Function via `serverless-http`, data in **Netlify Blobs**).
+**Stack:** Express API + plain HTML/CSS/JS, deployed on **Vercel** (the Express app runs as a Vercel Function, data in **Upstash Redis**).
 
 ---
 
@@ -32,31 +32,7 @@ DISCORD_BOT_TOKEN=    # Egg Bot (optional)
 # PORT=3002
 ```
 
-Locally the app always uses `http://localhost:3002` as its URL, and data is kept in `data/store.json`.
-
-## Deploy on Netlify
-
-1. Push the repo to GitHub and import it in Netlify. **`netlify.toml` configures everything** (publish `public`, functions `netlify/functions`, redirects, security headers).
-2. **Site configuration → Environment variables:**
-
-   | Variable | Value |
-   |---|---|
-   | `APP_SECRET` | **Required.** 64 random hex chars, never change it later: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from Google Cloud |
-   | `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET` | from kick.com/settings/developer |
-   | `DISCORD_BOT_TOKEN` | Egg Bot only — from discord.com/developers → your app → Bot |
-   | `BOT_YOUTUBE_CHANNEL_ID` | YouTube channel ID (UC…) of the OmniChat Bot account |
-   | `EGG_DISCORD_CHANNEL_ID` | Discord channel with the egg spawn alerts |
-   | `APP_URL` | optional; only for a custom domain (Netlify provides its URL automatically) |
-
-3. **Google Cloud** → APIs & Services → enable **YouTube Data API v3**. Then Credentials → OAuth client (Web application) → Authorized redirect URI:
-   `https://<your-site>.netlify.app/auth/youtube/callback`
-   While the consent screen is in *Testing*, add each streamer under **Test users**.
-4. **Kick** → kick.com/settings/developer → your app:
-   - Redirect URL: `https://<your-site>.netlify.app/auth/kick/callback`
-   - Scopes: *Read user information* + *Read channel information*
-   - Webhooks: enabled, URL `https://<your-site>.netlify.app/webhooks/kick`
-5. Push to git. Netlify deploys automatically.
+Locally the app always uses `http://localhost:3002` as its URL, and data is kept in `data/store.json` (never the production Redis).
 
 ## Using the widgets
 
@@ -75,17 +51,17 @@ One-time setup by the owner:
 - **Kick:** messages come from the Kick app's bot. Enable *Write to Chat feed* in the Kick app. Streamers' Kick login already includes chat permission.
 - Each YouTube message costs about 50 quota units, so the bot posts at most `EGG_DAILY_POST_LIMIT` (120) per streamer per day.
 
-## How it works on Netlify
+## How it works on Vercel
 
-Netlify Functions can't run forever, keep files, or hold open connections, so:
+Vercel Functions can't run forever, keep files, or hold open connections, so:
 - Widgets and the dashboard **poll** the API every few seconds.
 - On each poll the server does any YouTube/Kick work that is due (live check, chat, viewers). YouTube is therefore only checked while a widget or the dashboard is open.
 - **Kick chat** arrives through Kick's official signed **webhooks**.
-- Data (users, widgets, logs, chat history) is stored in **Netlify Blobs**.
+- Data (users, widgets, logs, chat history) is stored in **Upstash Redis**.
 
 **Limits:**
 - Chat has a ~2–5 s delay.
-- Each poll is a Function call, so check your Netlify plan limits.
+- Each poll is a Function call (and a few Redis commands), so check your Vercel and Upstash plan limits.
 - The YouTube API allows about 10,000 quota units per day per Google project, shared by all users.
 - YouTube's API rounds subscriber counts (e.g. 27.8K).
 - Kick's official API has no follower total, so followers sync automatically from your browser when the dashboard is open.
@@ -102,8 +78,8 @@ Netlify Functions can't run forever, keep files, or hold open connections, so:
 
 | Problem | Fix |
 |---|---|
-| Netlify "Page not found" | Make sure `netlify.toml` is in the repo root and publish dir is `public` |
-| Login error 500 / "APP_SECRET must be set" | Add `APP_SECRET` in Netlify environment variables and redeploy |
+| "Signed out (session not found)" / "User not found" | Open `/api/health`: it must say `"store":"kv"`. Otherwise connect Upstash Redis in Vercel → Storage and redeploy |
+| Login error 500 / "APP_SECRET must be set" | Add `APP_SECRET` in Vercel environment variables and redeploy |
 | `redirect_uri_mismatch` (Google) | Add `https://<site>/auth/youtube/callback` exactly |
 | `invalid authorization request` (Kick) | Redirect URL in the Kick app must be `https://<site>/auth/kick/callback` |
 | `access_denied` (Google) | Add your Google account to the consent screen's Test users |
@@ -114,7 +90,7 @@ Check **Logs** in the dashboard for details.
 
 ## Deploy on Vercel
 
-This repo is already configured for Vercel: `vercel.json` (rewrites/headers) + `api/index.mjs` (Express via `serverless-http`) and persistent storage via Upstash Redis/Vercel KV (`server/store.js`, `OMNICHAT_STORE=kv`).
+Configured by `vercel.json` (rewrites/headers), the Express entry `app.js`/`index.js` and `api/*.mjs`. Storage is Upstash Redis (`server/store.js` picks it automatically when its env vars exist). Push to git → Vercel deploys.
 
 1. **Create persistent storage (required).** Vercel's filesystem is ephemeral. In Vercel: Project → Storage → create/connect **Upstash Redis** (or Vercel KV). This provides `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (also works with `KV_REST_API_URL`/`KV_REST_API_TOKEN`). Without it, logins/sessions/widgets will be lost.
 2. **Import the repo in Vercel.** Framework preset: Other. Root directory: project root. No build command needed (static UI served from `public/`).
@@ -129,6 +105,6 @@ This repo is already configured for Vercel: `vercel.json` (rewrites/headers) + `
    - Google redirect URI: `https://<domain>/auth/youtube/callback`
    - Kick redirect URI: `https://<domain>/auth/kick/callback`
    - Kick webhook URL: `https://<domain>/webhooks/kick` (webhooks enabled, scopes/user+channel read and chat write as needed)
-5. **Deploy.** After env vars are set, redeploy. Open `/login`, connect accounts, copy widget URLs from Studio into OBS/overlay.
+5. **Deploy.** After env vars are set, redeploy. Check `https://<domain>/api/health` (`"store":"kv"`), then open `/login`, connect accounts, copy widget URLs from Studio into OBS/overlay.
 
-Notes: YouTube/Kick work runs on poll requests (serverless), so keep a dashboard/widget open while streaming. If you rotate `APP_SECRET`, previously stored encrypted tokens become unreadable and accounts/bots must reconnect. Netlify deploy files (`netlify.toml`, `netlify/functions/`) can remain in the repo; Vercel uses `vercel.json` + `api/`.
+Notes: YouTube/Kick work runs on poll requests (serverless), so keep a dashboard/widget open while streaming. If you rotate `APP_SECRET`, previously stored encrypted tokens become unreadable and accounts/bots must reconnect.

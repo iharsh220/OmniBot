@@ -10,7 +10,7 @@ export function parseCookies(req) {
   return out;
 }
 /**
- * Is THIS request on https? Decided from the request itself (Vercel/Netlify send x-forwarded-proto),
+ * Is THIS request on https? Decided from the request itself (Vercel sends x-forwarded-proto),
  * not from APP_URL, so a wrong/missing APP_URL can never make the browser drop our cookies.
  */
 export function isSecureReq(req) {
@@ -18,7 +18,7 @@ export function isSecureReq(req) {
   if (proto) return proto === 'https';
   return !!req?.socket?.encrypted || isHttps();
 }
-/** The request's own host (behind Vercel/Netlify proxies). */
+/** The request's own host (behind the Vercel proxy). */
 export const reqHost = (req) => String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '').split(',')[0].trim().toLowerCase();
 
 export function cookie(name, value, maxAgeSec, secure = isHttps()) {
@@ -33,7 +33,7 @@ export function sameOrigin(req) {
   try { return new URL(o).host === host; } catch { return false; }
 }
 
-// Best-effort rate limiter (in memory; on Netlify each function instance has its own).
+// Best-effort rate limiter (in memory; on Vercel each function instance has its own).
 const hits = new Map();
 export function limit(bucket, max, windowMs) {
   return (req, res, next) => {

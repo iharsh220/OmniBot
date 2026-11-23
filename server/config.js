@@ -1,10 +1,10 @@
 // App configuration from environment variables.
-// Netlify: Site configuration → Environment variables. Local: .env (loaded by server/local.js).
+// Vercel: Settings → Environment Variables. Local: .env (loaded by server/local.js).
 const e = process.env;
 const num = (v, d) => (v !== undefined && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : d);
 
 export const config = {
-  // Netlify sets URL to the site's primary URL. APP_URL overrides it (custom domain / local dev).
+  // APP_URL = the public site URL (custom domain). Local dev forces localhost (server/local.js).
   // Vercel: falls back to the production domain (VERCEL_PROJECT_PRODUCTION_URL) when APP_URL is not set.
   get appUrl() {
     const vercel = e.VERCEL_PROJECT_PRODUCTION_URL || e.VERCEL_URL;
