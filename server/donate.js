@@ -76,13 +76,28 @@ export async function confirmDonation(uid, user, id) {
     return D;
   }, { items: [] });
   if (!hit) throw Object.assign(new Error('Donation not found or already handled'), { status: 404 });
+  await showDonationAlert(uid, user, hit);
+  return hit;
+}
+
+/** Put a Donation alert into the stream (Alerts widget + chat events + history). */
+async function showDonationAlert(uid, user, hit) {
   const msg = {
     id: `don-${hit.id}`, platform: 'upi', ts: Date.now(), kind: 'donation', alert: 'donation', amount: `₹${hit.amount.toLocaleString('en-IN')}`,
     author: { name: hit.name, avatar: null, badges: [] }, parts: hit.message ? [{ type: 'text', text: hit.message }] : [], eventText: 'Donation',
   };
   await numberAlerts(uid, [msg]).catch(() => {});
   await addEvents(uid, { chats: [msg], historyDays: user.historyDays ?? 7 });
-  return hit;
+}
+
+/** Streamer got a UPI payment without a note (e.g. someone scanned the raw UPI QR): add it by hand. */
+export async function addManualDonation(uid, user, b) {
+  const amount = Math.round(Number(b.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) throw Object.assign(new Error('Enter a valid amount'), { status: 400 });
+  const item = { id: randomId(10), name: clean(b.name, 40) || 'Anonymous', amount, message: clean(b.message, 200), ts: Date.now(), status: 'received', confirmedAt: Date.now(), manual: true };
+  await db.update(`donations/${uid}`, (D) => { D.items = [item, ...D.items].slice(0, MAX_ITEMS); return D; }, { items: [] });
+  await showDonationAlert(uid, user, item);
+  return item;
 }
 
 export async function dismissDonation(uid, id) {

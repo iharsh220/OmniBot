@@ -343,9 +343,11 @@ export class DonateView {
     const qr = document.createElement('img');
     qr.className = 'oc-dqr';
     qr.alt = 'UPI QR';
-    qr.src = `/api/qr.svg?d=${encodeURIComponent(d.link)}`;
+    const page = d.id ? `${location.origin}/d/${d.id}` : null;
+    const usePage = this.s.donateQr !== 'upi' && page;
+    qr.src = `/api/qr.svg?d=${encodeURIComponent(usePage ? page : d.link)}`;
     const text = el('div', 'oc-dtext');
-    text.append(el('b', 'oc-dtitle', this.s.donateTitle || 'Support the stream'), el('span', 'oc-dsub', 'Scan with any UPI app'));
+    text.append(el('b', 'oc-dtitle', this.s.donateTitle || 'Support the stream'), el('span', 'oc-dsub', usePage ? 'Scan with your phone camera to donate' : 'Scan with any UPI app'));
     if (this.s.donateShowUpi) text.append(el('span', 'oc-dupi', d.upi));
     if (this.s.donateShowLink && d.id) text.append(el('span', 'oc-dlink', `${location.host}/d/${d.id}`));
     card.append(qr, text);

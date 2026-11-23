@@ -397,22 +397,26 @@ export async function disconnectYouTubeBot(uid) {
 
 /**
  * Every streamer gets one ready-made widget of each type (chat, stats, alerts, eggs, goal, poll), so
- * nobody starts with an empty Studio. Runs once per account (`defaultsV2`): a widget the streamer
+ * nobody starts with an empty Studio. Each type is offered once per account (`defaultTypes`): a widget the streamer
  * deletes later is not re-created. Existing accounts only get the types they don't have yet.
  */
 export async function ensureDefaultWidgets(uid) {
   const u = await getUser(uid);
-  if (!u || u.defaultsV2) return;
+  if (!u) return;
+  // accounts from before `defaultTypes` already got the first six types
+  const offered = new Set(u.defaultTypes || (u.defaultsV2 ? ['chat', 'stats', 'alerts', 'eggs', 'goal', 'poll'] : []));
+  if (DEFAULT_WIDGETS.every(([t]) => offered.has(t))) return;
   const have = new Set((await Promise.all((u.widgets || []).map((id) => db.get(`widget/${id}`)))).filter(Boolean).map((w) => w.type));
   const now = Date.now();
   const ids = [];
   for (const [type, name] of DEFAULT_WIDGETS) {
-    if (have.has(type)) continue;
+    if (have.has(type) || offered.has(type)) continue;
     const id = randomId(9);
     await db.set(`widget/${id}`, { id, uid, type, name, settings: normalizeSettings(WIDGET_PRESETS[type] || {}), createdAt: now, updatedAt: now });
     ids.push(id);
   }
-  await updateUser(uid, (x) => (x ? { ...x, defaultsV2: true, widgets: [...(x.widgets || []), ...ids].slice(0, 50) } : undefined));
+  const all = DEFAULT_WIDGETS.map(([t]) => t);
+  await updateUser(uid, (x) => (x ? { ...x, defaultsV2: true, defaultTypes: all, widgets: [...(x.widgets || []), ...ids].slice(0, 50) } : undefined));
 }
 
 // ââ Access tokens (auto refresh + persist) ââ

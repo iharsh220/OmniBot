@@ -174,7 +174,7 @@ const ALERT_EDIT_GROUP = { tab: 'content', title: 'Customize an alert', types: [
       { k: `alert${K}SoundUrl`, t: 'upload', accept: 'audio/*', kind: 'audio', label: 'Your sound file', show: (s) => on(s) && s[`alert${K}Sound`] === 'custom', hint: 'MP3, OGG, WAV or M4A · up to 3 MB · short sounds work best' },
       { t: 'action', icon: 'volume', label: 'Play sound', show: (s) => on(s) && s[`alert${K}Sound`] !== 'none', run: () => playAlertSound({ ...settings, alertSound: true }, typeOfKind(K)) },
       { k: `alert${K}Image`, t: 'upload', accept: 'image/png,image/jpeg,image/gif,image/webp', kind: 'image', label: 'Your picture / GIF (optional)', show: on, hint: 'Shown instead of the viewer’s avatar · PNG, JPG, GIF, WebP · up to 3 MB' },
-      { t: 'action', icon: 'play', label: 'Test this alert', show: on, run: () => testAlert(typeOfKind(K)) },
+      { t: 'action', icon: 'play', label: 'Test this alert (preview + OBS)', show: on, run: () => sendTestToObs(typeOfKind(K)) },
     ];
   }),
 ] };
@@ -322,6 +322,7 @@ const GROUPS = [
   ] },
   { tab: 'content', title: 'Donate box', types: ['donate'], fields: [
     { k: 'donateTitle', t: 'text', label: 'Title', placeholder: 'Support the stream 💜' },
+    { k: 'donateQr', t: 'seg', label: 'QR code opens', options: [['page', 'My donation page'], ['upi', 'UPI app directly']], hint: 'Donation page = viewer adds name + message and you get a note to confirm. UPI direct = no note, add it by hand on the Donations page' },
     { k: 'donateShowUpi', t: 'toggle', label: 'Show my UPI ID' },
     { k: 'donateShowLink', t: 'toggle', label: 'Show my donation page link' },
     { t: 'action', icon: 'heart', label: 'Set up UPI & see donations', run: () => { location.hash = 'donations'; } },
@@ -625,13 +626,15 @@ function selectWidget(id) {
 }
 
 async function newWidget() {
-  const picker = h('div', { class: 'seg full type-grid', 'data-value': 'chat' },
-    Object.entries(TYPE_META).map(([t, [, ico, label]]) => h('button', { type: 'button', class: t === 'chat' ? 'on' : '', 'data-v': t }, ic(ico), label)));
+  const TYPE_DESC = { chat: 'YouTube + Kick chat in one box', stats: 'Viewers, subs & followers', eggs: 'Steal an Egg spawns & events', alerts: 'Super Chats, members, subs, donations', goal: 'Progress bar to a target', poll: 'Live !vote results', donate: 'Your UPI QR code on stream' };
+  const picker = h('div', { class: 'type-cards', 'data-value': 'chat', role: 'radiogroup' },
+    Object.entries(TYPE_META).map(([t, [, ico, label]]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(t === 'chat'), class: 'type-card' + (t === 'chat' ? ' on' : ''), 'data-v': t },
+      h('span', { class: `wsel-ic t-${t}`, html: icon(ico) }), h('span', { class: 'wsel-txt' }, h('b', {}, label), h('small', {}, TYPE_DESC[t] || '')))));
   picker.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     picker.dataset.value = b.dataset.v;
-    $$('button', picker).forEach((x) => x.classList.toggle('on', x === b));
+    $$('button', picker).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
   });
   const type = await dialog({ title: 'New widget', text: 'Each widget gets its own URL and design. Use several for different scenes.', confirm: 'Create widget', content: picker });
   if (!type) return;
@@ -1559,7 +1562,16 @@ async function donateCard() {
     h('div', { class: 'card-head' }, ic('heart'), h('h3', {}, 'Donation notes'), h('span', { class: 'sub' }, `${pending.length} waiting for you`)),
     h('p', { class: 'muted tiny', style: 'margin-top:0' }, 'Open your UPI app, check the money arrived, then press Received. The alert appears on your Alerts widget.'),
     pending.length || done.length ? h('ul', { class: 'tchat' }, [...pending, ...done].map(row)) : h('p', { class: 'muted tiny' }, 'No donations yet.'));
-  return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list);
+  const mName = h('input', { class: 'input', maxlength: 40, placeholder: 'Name' });
+  const mAmount = h('input', { class: 'input', type: 'number', min: 1, placeholder: 'Amount ₹' });
+  const mMsg = h('input', { class: 'input', maxlength: 200, placeholder: 'Message (optional)' });
+  const manual = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, ic('plus'), h('h3', {}, 'Add a donation by hand')),
+    h('p', { class: 'muted tiny', style: 'margin-top:0' }, 'Someone paid your UPI ID directly (no note)? Check your UPI app, enter it here and the Donation alert shows on stream.'),
+    h('div', { class: 'tmanual' }, mName, mAmount, mMsg, h('button', { type: 'button', class: 'btn primary', onclick: async () => {
+      try { await api('/api/tools/donate/manual', { method: 'POST', body: JSON.stringify({ name: mName.value, amount: Number(mAmount.value), message: mMsg.value }) }); toast('Donation alert sent to stream'); renderDonations(); } catch (e) { toast(e.message, 'err'); }
+    } }, ic('send'), 'Show alert')));
+  return h('div', { class: 'grid', style: 'gap:16px' }, setup, needWidget('donate', 'The QR code on stream'), list, manual);
 }
 
 async function renderDonations() {

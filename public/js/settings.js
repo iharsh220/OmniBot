@@ -85,7 +85,7 @@ export const DEFAULTS = {
   alertGift: true, // gifted memberships (YouTube) / gifted subs (Kick)
   alertKickSub: true, // Kick subs + resubs
   alertFollow: true, // Kick follows
-  alertGreeting: false, // YouTube vertical-live "said hi"
+  alertGreeting: true, // YouTube vertical-live "said hi"
   alertHighlight: true, // messages you highlight from the dashboard
   alertDonation: true, // UPI donations you confirm in Live tools → Donations
   alertMessage: true, // show the viewer's message on the alert
@@ -104,6 +104,7 @@ export const DEFAULTS = {
   donateTitle: 'Support the stream 💜',
   donateShowUpi: true,
   donateShowLink: true,
+  donateQr: 'page', // QR opens: page = your donation page (name + message, you get a note) | upi = UPI app directly
   // ── poll widget ──
   pollHideIdle: true, // hide when there is no poll (and 60 s after it ended)
   pollHint: true, // "Type !vote 1 …" line // OBS: scale (and re-flow columns) so the whole overlay fits any resolution
@@ -212,6 +213,7 @@ const ENUMS = {
   eggsAlertPos: ['top', 'center', 'bottom'],
   goalType: ['youtube-subs', 'kick-followers', 'combined'],
   goalStyle: ['bar', 'slim'],
+  donateQr: ['page', 'upi'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
@@ -238,7 +240,7 @@ export const WIDGET_PRESETS = {
   poll: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#a78bfa', radius: 12, shadow: true, pageBgOpacity: 0 },
   donate: { theme: 'midnight', font: 'Inter', fontSize: 16, textColor: '#f4f6fb', msgBg: '#0f1426', msgBgOpacity: 92, accent: '#22c55e', radius: 14, shadow: true, pageBgOpacity: 0 },
 };
-export const DEFAULT_WIDGETS = [['chat', 'My chat'], ['stats', 'My stats'], ['alerts', 'My alerts'], ['eggs', 'Egg tracker'], ['goal', 'My goal'], ['poll', 'My poll']];
+export const DEFAULT_WIDGETS = [['chat', 'My chat'], ['stats', 'My stats'], ['alerts', 'My alerts'], ['eggs', 'Egg tracker'], ['goal', 'My goal'], ['poll', 'My poll'], ['donate', 'Donate QR']];
 
 function validValue(k, v, def) {
   if (typeof v !== typeof def) return undefined;

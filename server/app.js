@@ -21,7 +21,7 @@ import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCo
 import { normalizeSettings } from '../public/js/settings.js';
 import { saveMedia, readMedia, deleteMedia, MAX_BYTES } from './media.js';
 import QRCode from 'qrcode';
-import { donateSettings, validateDonate, publicDonate, submitDonation, readDonations, confirmDonation, dismissDonation } from './donate.js';
+import { donateSettings, validateDonate, publicDonate, submitDonation, readDonations, confirmDonation, dismissDonation, addManualDonation } from './donate.js';
 import { numberAlerts, testAlert, highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
 
 const app = express();
@@ -203,7 +203,11 @@ app.post(`/api/donate/${UID}`, limit('donate', 6, 60_000), ah(async (req, res) =
 }));
 app.get('/api/qr.svg', limit('qr', 120, 60_000), ah(async (req, res) => {
   const d = String(req.query.d || '');
-  if (!/^upi:\/\/pay\?[\w%.@&=+-]{5,500}$/.test(d)) return res.status(400).json({ error: 'Only UPI payment links' });
+  let ok = /^upi:\/\/pay\?[\w%.@&=+-]{5,500}$/.test(d);
+  if (!ok) { // or this site's own donation page /d/<id>
+    try { const u = new URL(d); const hosts = [new URL(config.appUrl).host, reqHost(req)]; ok = /^https?:$/.test(u.protocol) && hosts.includes(u.host) && /^\/d\/[\w-]{6,40}$/.test(u.pathname) && !u.search; } catch { ok = false; }
+  }
+  if (!ok) return res.status(400).json({ error: 'Only UPI payment links or your donation page' });
   const svg = await QRCode.toString(d, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
   res.set({ 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
   res.send(svg);
@@ -479,6 +483,11 @@ api.put('/tools/donate', ah(async (req, res) => {
 api.post('/tools/donate/:id([\\w-]{6,20})/confirm', ah(async (req, res) => {
   const d = await confirmDonation(req.user.id, req.user, req.params.id);
   await log(req.user.id, 'info', 'system', `Donation received: ₹${d.amount} from ${d.name}`);
+  res.json({ ok: true });
+}));
+api.post('/tools/donate/manual', ah(async (req, res) => {
+  const d = await addManualDonation(req.user.id, req.user, req.body || {});
+  await log(req.user.id, 'info', 'system', `Donation added by hand: ₹${d.amount} from ${d.name}`);
   res.json({ ok: true });
 }));
 api.delete('/tools/donate/:id([\\w-]{6,20})', ah(async (req, res) => { await dismissDonation(req.user.id, req.params.id); res.json({ ok: true }); }));
