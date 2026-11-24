@@ -10,6 +10,7 @@ import { isBotAccount, normalizeAccounts, sessionCount, getSystemBot, getSystemK
 import { readLogs } from './feed.js';
 import { readFeed } from './eggs.js';
 import { listTickets, readTicket, readShot, setTicketStatus, mailReady } from './support.js';
+import { adminDiscord, userDiscord } from './discord.js';
 import { issue, record, readList, searchList, LIST_MAX, AUDIT_DAYS } from './audit.js';
 
 const DAY = 86_400_000;
@@ -37,6 +38,7 @@ function userRow(u, live, seen) {
     lastSeenAt: seen?.at || null, ip: seen?.ip || null, loc: seen?.loc || null, device: seen?.device || null,
     active: !!seen?.at && now - seen.at < ACTIVE_MS, overlayAt: seen?.overlayAt || null,
     accounts, live: accounts.some((a) => a.live), problem: accounts.some((a) => a.reconnect),
+    discord: u.discord?.guildId ? { guildId: u.discord.guildId, server: u.discord.guildName || 'Discord server', enabled: !!u.discord.enabled } : null,
     eggBot: !!u.egg?.enabled, donations: !!u.donate?.enabled, widgets: (u.widgets || []).length, sessions: sessionCount(u), historyDays: u.historyDays ?? 7,
   };
 }
@@ -105,10 +107,10 @@ admin.get('/users/:id([\\w-]{6,40})', ah(async (req, res) => {
   const { id } = req.params;
   const u = await db.get(`user/${id}`);
   if (!u) return res.status(404).json({ error: 'User not found (deleted account?)' });
-  const [live, seen, actions, pages, logs, widgets, eggs, issues] = await Promise.all([
+  const [live, seen, actions, pages, logs, widgets, eggs, issues, discord] = await Promise.all([
     db.get(`live/${id}`), db.get(`seen/${id}`), readList(`audit/${id}`, 0, 300), readList(`pages/${id}`, 0, 100), readLogs(id, { limit: 200 }),
     db.mget((u.widgets || []).map((w) => `widget/${w}`)), db.get(`eggs/${id}`),
-    searchList('audit/issues', { max: LIST_MAX.issues, limit: 50, match: (x) => x.uid === id }),
+    searchList('audit/issues', { max: LIST_MAX.issues, limit: 50, match: (x) => x.uid === id }), userDiscord(u),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   res.json({
@@ -116,6 +118,7 @@ admin.get('/users/:id([\\w-]{6,40})', ah(async (req, res) => {
     ips: (seen?.ips || []).filter((x) => x.last > Date.now() - AUDIT_DAYS * DAY),
     activity: [...actions, ...pages].sort((a, b) => b.ts - a.ts),
     issues: issues.rows,
+    discord,
     // donations are the streamer's own business: not part of the admin view
     logs: logs.rows.filter((l) => !/donation/i.test(l.message)),
     widgets: widgets.filter(Boolean).map((w) => ({ type: w.type, name: w.name, createdAt: w.createdAt, updatedAt: w.updatedAt })),
@@ -138,6 +141,8 @@ async function search(req, key, max, fields) {
 }
 admin.get('/activity', ah(async (req, res) => res.json(await search(req, 'audit/all', LIST_MAX.all, ['action', 'detail', 'kind']))));
 admin.get('/issues', ah(async (req, res) => res.json(await search(req, 'audit/issues', LIST_MAX.issues, ['message', 'where', 'kind']))));
+
+admin.get('/discord', ah(async (_req, res) => res.json(await adminDiscord(await allUsers()))));
 
 // ── Support requests ──
 admin.get('/tickets', ah(async (_req, res) => res.json({ mail: mailReady(), email: config.support.email || null, tickets: await withNames(await listTickets()) })));

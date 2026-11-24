@@ -2232,8 +2232,15 @@ async function boot() {
   $('#open-whats-new')?.addEventListener('click', showWhatsNewModal);
   $('#open-creator')?.addEventListener('click', showCreatorModal);
   $('#nav-creator')?.addEventListener('click', (e) => { e.preventDefault(); showCreatorModal(); });
-  showPage(location.hash.slice(1) || 'overview');
+  showPage(location.hash.slice(1) || (me.user.isAdmin ? 'admin' : 'overview'));
+  $('#app').classList.remove('booting');
+  if (me.user.isAdmin) return; // the bot account has no stream to sync
   autoSyncKick();
   setInterval(() => autoSyncKick({ force: true }), 10 * 60_000); // keep the follower total fresh while the dashboard is open
 }
-boot().catch((e) => toast(e.message, 'err'));
+boot().catch((e) => {
+  console.error(e);
+  if (me) { $('#app').classList.remove('booting'); toast(e.message, 'err'); return; }
+  if (e.message === 'Signed out') return; // already on the way to /login
+  $('#app').replaceWith(h('div', { class: 'boot-error' }, h('h2', {}, 'OmniChat could not load'), h('p', { class: 'muted' }, e.message), h('button', { type: 'button', class: 'btn primary', onclick: () => location.reload() }, 'Try again')));
+});

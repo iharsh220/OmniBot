@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
-<div class="app" id="app">
+<div class="app booting" id="app">
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <a class="brand" href="#overview"><img src="/favicon.svg" alt="" /><div><b>OmniChat</b><small id="brand-sub">Stream Studio</small></div></a>
 
@@ -25,6 +25,7 @@
     <a class="nav-item" data-page="streamers" data-role="admin" href="#streamers" hidden><span data-icon="users"></span>Streamers</a>
     <a class="nav-item" data-page="activity" data-role="admin" href="#activity" hidden><span data-icon="clock"></span>Activity</a>
     <a class="nav-item" data-page="issues" data-role="admin" href="#issues" hidden><span data-icon="alert"></span>Issues</a>
+    <a class="nav-item" data-page="discordlog" data-role="admin" href="#discordlog" hidden><span data-icon="discord"></span>Discord</a>
     <a class="nav-item" data-page="tickets" data-role="admin" href="#tickets" hidden><span data-icon="mail"></span>Support requests<span class="count" id="nav-tickets" hidden>0</span></a>
 
     <div class="nav-label" data-role="streamer">Workspace</div>
@@ -140,6 +141,7 @@
     <section class="page" id="page-activity" hidden></section>
     <section class="page" id="page-issues" hidden></section>
     <section class="page" id="page-tickets" hidden></section>
+    <section class="page" id="page-discordlog" hidden></section>
     <section class="page" id="page-support" hidden></section>
     <section class="page" id="page-discord" hidden></section>
   </div>

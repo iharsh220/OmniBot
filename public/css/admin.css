@@ -101,3 +101,6 @@ a.ad-kpi:hover { border-color: var(--border-strong); }
 .dc-pic { display: flex; align-items: center; gap: 12px; }
 .dc-pic img { width: 120px; height: 80px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
 .ad-dot.ok { background: var(--ok); }
+/* Status lists: "done" means working, not finished → no strike-through */
+#page-admin .checklist li.done b, #page-discordlog .checklist li.done b, #page-discord .checklist li.done b { text-decoration: none; color: var(--text); }
+#page-discordlog .table th, #page-discordlog .table td { padding: 10px 11px; }

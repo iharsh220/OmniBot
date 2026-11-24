@@ -18,6 +18,7 @@ import { dapi, botId, botGuilds, guildChannels, plain, has, INVITE_PERMISSIONS }
 import { decrypt, encrypt, randomToken, sha256, safeEqual } from './crypto.js';
 import { getAccessToken, getUser, updateUser, listAccounts, normalizeAccounts } from './auth.js';
 import { addLogs } from './feed.js';
+import { record, issue } from './audit.js';
 import { getEggChannelId } from './eggs.js';
 import { activeBroadcasts, videosByIds, uploadIds } from './youtube.js';
 import { kickChannel } from './kick.js';
@@ -250,6 +251,7 @@ export async function announce(user, ev, { file } = {}) {
     await addLogs(user.id, [result.error
       ? { level: 'error', source: 'discord', message: `${LABEL[ev.type]} announcement failed in ${result.error}` }
       : { level: 'info', source: 'discord', message: `Announced in #${c.name}: ${LABEL[ev.type]}${ev.title ? ` "${clean(ev.title, 80)}"` : ''} (${ev.source})` }]);
+    await record(null, { uid: user.id, kind: 'discord', action: result.error ? 'Discord announcement failed' : 'Announced on Discord', ok: !result.error, detail: `${LABEL[ev.type]} in #${c.name} (${ev.source})${result.error ? ` — ${result.error}` : ''}` });
     return result.error ? 'failed' : 'sent';
   };
   const results = [];
@@ -330,9 +332,11 @@ export async function obsSignal(user, event) {
   if (!user.discord?.enabled || !linked(user)) return { more: false };
   let go = false;
   let active = false;
+  let begun = false;
   await db.update(KEY(user.id), (D) => {
     go = false;
     active = false;
+    begun = false;
     const now = Date.now();
     const B = D.burst || { until: 0, starts: [] };
     const started = event === 'start' && now > B.until;
@@ -342,6 +346,7 @@ export async function obsSignal(user, event) {
       B.starts.push(now);
       B.until = now + 3 * MIN;
       D.obsAt = now;
+      begun = true;
     }
     active = now < B.until;
     D.burst = B;
@@ -350,6 +355,7 @@ export async function obsSignal(user, event) {
     go = true;
     return D;
   }, {});
+  if (begun) await record(null, { uid: user.id, kind: 'discord', action: 'Streaming app started', detail: 'Start signal from an overlay' });
   if (!go) return { more: active };
   const r = await checkLive(user, 'OBS');
   const found = (r.youtube || !ytAcc(user)) && (r.kick || !kickAcc(user));
@@ -439,7 +445,7 @@ export async function cron() {
     out.checked += 1;
     if (now > (last.quotaUntil || 0)) {
       const r = await checkLive(user, 'scheduler', { kick: due('kick', 5 * MIN) });
-      if (r.error) out.error = r.error;
+      if (r.error) { out.error = r.error; await issue(null, { uid, level: 'warn', kind: 'discord', message: `Live check failed: ${r.error}`, dedupeMs: 60 * MIN }); }
       if (r.quota) last.quotaUntil = now + 15 * MIN;
     }
     const slow = due('slow', 10 * MIN);
@@ -453,7 +459,7 @@ export async function cron() {
           const fresh = up.items.filter((x) => x.published >= user.discord.since && !known.has(`yt:${x.id}`)).map((x) => x.id);
           if (fresh.length) await handleVideos(user, fresh, 'scheduler');
         }
-      } catch (e) { out.error = e.message; }
+      } catch (e) { out.error = e.message; await issue(null, { uid, level: 'warn', kind: 'discord', message: `Upload check failed: ${e.message}`, dedupeMs: 60 * MIN }); }
     }
     if (slow || due('kick', 5 * MIN) || last.quotaUntil > now) {
       await db.set('cron/discord', { ...(lastDoc || {}), [uid]: { ...last, at: now, ...(slow ? { slow: now } : {}), ...(due('kick', 5 * MIN) ? { kick: now } : {}) } });
@@ -470,6 +476,34 @@ export async function registerDiscord(uid, on) {
     return S;
   }, { uids: [] });
   list.at = 0;
+}
+
+// ── Admin panel ──
+const brief = (D) => ({
+  sent: (D?.history || []).filter((x) => x.ok).length, failed: (D?.history || []).filter((x) => !x.ok).length, lastAt: D?.history?.[0]?.ts || null,
+  obsAt: D?.obsAt || null, push: (D?.push?.leaseUntil || 0) > Date.now(),
+});
+/** Everything about announcements, for the OmniChat Bot account. `users` = admin user rows (id, name, avatar, discord). */
+export async function adminDiscord(users) {
+  const using = users.filter((u) => u.discord);
+  const [docs, cronDoc, servers] = await Promise.all([
+    db.mget(using.map((u) => KEY(u.id))), db.get('cron/discord'),
+    config.discord.botToken ? botGuilds().then((l) => l.map((g) => ({ id: g.id, name: clean(g.name, 100) }))).catch((e) => ({ error: e.message })) : { error: 'DISCORD_BOT_TOKEN is not set' },
+  ]);
+  const owner = new Map();
+  for (const u of using) owner.set(u.discord.guildId, [...(owner.get(u.discord.guildId) || []), u.name]);
+  return {
+    setup: { bot: !!config.discord.botToken && !servers.error, error: servers.error || null, invite: !!config.discord.clientSecret, cron: !!config.cronSecret, cronAt: Math.max(0, ...Object.values(cronDoc || {}).map((x) => x?.at || 0)) || null },
+    servers: servers.error ? [] : servers.slice(0, 200).map((g) => ({ name: g.name, linkedTo: owner.get(g.id) || [] })),
+    streamers: using.map((u, i) => ({ id: u.id, name: u.name, avatar: u.avatar, server: u.discord.server, enabled: u.discord.enabled, cronAt: cronDoc?.[u.id]?.at || null, ...brief(docs[i]) })),
+    history: using.flatMap((u, i) => (docs[i]?.history || []).map((x) => ({ ...x, uid: u.id, name: u.name, avatar: u.avatar }))).sort((a, b) => b.ts - a.ts).slice(0, 200),
+  };
+}
+export async function userDiscord(user) {
+  if (!user?.discord?.guildId) return null;
+  const D = await db.get(KEY(user.id));
+  const s = discordSettings(user);
+  return { server: user.discord.guildName || 'Discord server', enabled: s.enabled, types: Object.fromEntries(TYPES.map((t) => [t, s.types[t].on ? s.types[t].ping : 'off'])), ...brief(D), history: (D?.history || []).slice(0, 40) };
 }
 
 // ── Dashboard actions ──

@@ -5,6 +5,7 @@ export const ADMIN_PAGES = {
   streamers: ['Streamers', 'Everyone who signed in: when, from where, and what they use'],
   activity: ['Activity', 'Every sign-in and action, newest first'],
   issues: ['Issues', 'Failed sign-ins, server and browser errors, platform problems'],
+  discordlog: ['Discord', 'Servers, announcements and their problems'],
   tickets: ['Support requests', 'Messages and screenshots sent by streamers'],
 };
 const PLATFORM = { youtube: 'YouTube', kick: 'Kick' };
@@ -161,6 +162,10 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
       ips: ['IPs & devices', 'monitor', d.ips.length, () => (d.ips.length ? table(['IP', 'Location', 'Device', 'First seen', 'Last seen'], d.ips.map((x) => h('tr', {}, h('td', {}, h('code', {}, x.ip || '—')), h('td', {}, place(x.loc) || 'Unknown'), h('td', {}, x.device || '—'), h('td', { class: 'ad-nowrap' }, fullTime(x.first)), h('td', { class: 'ad-nowrap' }, fullTime(x.last))))) : empty('monitor', 'No IPs recorded yet', ''))],
       issues: ['Issues', 'alert', d.issues.length, () => (d.issues.length ? table(['When', 'Type', 'Problem', 'From'], d.issues.map((r) => issueRow(r, false))) : empty('check', 'No problems', 'Nothing went wrong for this streamer.'))],
       logs: ['System logs', 'logs', d.logs.length, () => (d.logs.length ? table(['When', 'Level', 'Source', 'Message'], d.logs.map((l) => h('tr', {}, whenTd(l.ts), h('td', {}, h('span', { class: `lvl ${l.level}` }, l.level)), h('td', {}, l.source), h('td', { class: 'msgc' }, l.message)))) : empty('logs', 'No system logs', 'Kept 14 days.'))],
+      discord: ['Discord', 'discord', d.discord?.history.length || 0, () => (!d.discord ? empty('discord', 'No Discord server', 'This streamer has not connected Discord.') : h('div', {},
+        h('div', { class: 'ad-facts' }, fact('Server', d.discord.server), fact('Announcements', d.discord.enabled ? 'ON' : 'OFF'), fact('Last post', fullTime(d.discord.lastAt)), fact('Last start signal', fullTime(d.discord.obsAt)),
+          ...Object.entries(d.discord.types).map(([t, p]) => fact(DTYPE[t] || t, { both: '@everyone + @here', everyone: '@everyone', here: '@here', none: 'No ping', off: 'Off' }[p] || p))),
+        d.discord.history.length ? table(SENT_HEAD.filter((x) => x !== 'Streamer'), d.discord.history.map((x) => sentRow(x, false))) : null))],
       widgets: ['Widgets', 'layout', d.widgets.length, () => table(['Type', 'Name', 'Created', 'Last edited'], d.widgets.map((w) => h('tr', {}, h('td', {}, w.type), h('td', {}, w.name), h('td', {}, fullTime(w.createdAt)), h('td', {}, fullTime(w.updatedAt)))))],
     };
     const csv = () => exportCsv(`omnichat-${u.name || u.id}`, ['time', 'type', 'action', 'detail', 'result', 'ip', 'location', 'device'], d.activity.map((r) => [new Date(r.ts).toISOString(), r.kind, r.action, r.detail || '', r.ok === false ? 'failed' : 'ok', r.ip || '', place(r.loc) || '', r.device || '']));
@@ -218,6 +223,35 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
           fact('IP', t.ip), fact('Location', place(t.loc)), fact('Device', t.device), fact('Streamer', t.name || 'Deleted user'))));
   });
 
+  // ── Discord ──
+  const DTYPE = { live: 'YouTube live', video: 'YouTube video', short: 'YouTube Short', post: 'Post', kick: 'Kick live' };
+  const sentRow = (x, who = true) => h('tr', {}, whenTd(x.ts), who ? h('td', {}, person(x)) : null, h('td', { class: 'ad-nowrap' }, DTYPE[x.type] || x.type), h('td', { class: 'ad-nowrap' }, x.channel ? `#${x.channel}` : '—'),
+    h('td', { class: 'msgc' }, x.url ? h('a', { href: x.url, target: '_blank', rel: 'noopener noreferrer' }, x.title || 'Open') : x.title || '—', x.error ? h('span', { class: 'ad-err' }, x.error) : null),
+    h('td', { class: 'ad-nowrap' }, x.source || '—', x.late !== null && x.late !== undefined ? h('span', { class: 'ad-detail' }, `${x.late}s after start`) : null), h('td', {}, x.ok ? tag('Sent', 'ok') : tag('Failed', 'bad')));
+  const SENT_HEAD = ['When', 'Streamer', 'Type', 'Channel', 'What', 'Noticed by', 'Result'];
+  const loadDiscord = () => load('discordlog', '/api/admin/discord', (d) => {
+    const s = d.setup;
+    const cronOk = !!s.cronAt && Date.now() - s.cronAt < 20 * 60_000;
+    const li = (ok, title, sub) => h('li', { class: ok ? 'done' : '' }, h('span', { class: 'check' }, ic(ok ? 'check' : 'alert')), h('div', { class: 'txt' }, h('b', {}, title), h('span', {}, sub)));
+    const csv = () => exportCsv('omnichat-discord', ['time', 'streamer', 'type', 'channel', 'title', 'link', 'noticed by', 'seconds after start', 'result', 'error'],
+      d.history.map((x) => [new Date(x.ts).toISOString(), x.name, DTYPE[x.type] || x.type, x.channel || '', x.title || '', x.url || '', x.source || '', x.late ?? '', x.ok ? 'sent' : 'failed', x.error || '']));
+    $('#page-discordlog').replaceChildren(
+      h('div', { class: 'grid two' },
+        h('div', { class: 'card', style: 'align-self:start' }, h('div', { class: 'card-head' }, ic('users'), h('h3', {}, 'Streamers using Discord'), h('span', { class: 'sub' }, String(d.streamers.length))),
+          d.streamers.length ? table(['Streamer', 'Server', 'State', 'Sent', 'Failed', 'Last post', 'Start signal', 'Video push'], d.streamers.map((u) => h('tr', { class: 'ad-click', onclick: (e) => { if (!e.target.closest('a')) location.hash = `streamers/${u.id}`; } },
+            h('td', {}, person({ ...u, uid: u.id })), h('td', {}, u.server), h('td', {}, tag(u.enabled ? 'ON' : 'OFF', u.enabled ? 'ok' : '')), h('td', {}, fmtN(u.sent)), h('td', {}, u.failed ? tag(String(u.failed), 'bad') : '0'),
+            h('td', { class: 'ad-nowrap' }, when(u.lastAt)), h('td', { class: 'ad-nowrap' }, when(u.obsAt)), h('td', {}, u.push ? tag('Active', 'ok') : h('span', { class: 'muted' }, '—'))))) : empty('discord', 'Nobody yet', 'Streamers who connect a Discord server show up here.')),
+        h('div', { class: 'grid', style: 'align-content:start' },
+          h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('shield'), h('h3', {}, 'Setup')), h('ul', { class: 'checklist' },
+            li(s.bot, 'Discord bot', s.error || 'Connected'), li(cronOk, '1-minute backup check', cronOk ? `Last run ${ago(s.cronAt)}` : s.cron ? (s.cronAt ? `Last run ${ago(s.cronAt)}` : 'Waiting for the scheduler') : 'CRON_SECRET is missing in Vercel'),
+            li(s.invite, '“Add to Discord” for streamers', s.invite ? 'Ready' : 'DISCORD_CLIENT_SECRET is missing in Vercel (not needed for the owner)'))),
+          h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('discord'), h('h3', {}, 'Servers with the bot'), h('span', { class: 'sub' }, String(d.servers.length))),
+            d.servers.length ? h('ul', { class: 'ad-list' }, d.servers.map((g) => h('li', {}, h('div', { class: 'txt' }, h('b', {}, g.name), h('span', {}, g.linkedTo.length ? `Linked to ${g.linkedTo.join(', ')}` : 'Not linked to a streamer'))))) : h('p', { class: 'muted tiny ad-pad' }, 'None.')))),
+      h('div', { class: 'card', style: 'margin-top:16px' }, h('div', { class: 'card-head' }, ic('send'), h('h3', {}, 'Announcements'), h('div', { class: 'actions' },
+        h('a', { class: 'btn sm ghost', href: '#issues', onclick: () => { lists.issues.kind = 'discord'; } }, ic('alert'), 'Problems'), h('button', { class: 'btn sm', type: 'button', onclick: csv }, ic('download'), 'Export CSV'))),
+        d.history.length ? table(SENT_HEAD, d.history.map((x) => sentRow(x))) : empty('send', 'Nothing announced yet', 'Every announcement, also a failed one, shows up here.')));
+  });
+
   // ── Activity / Issues lists ──
   function renderList(id) {
     const st = lists[id];
@@ -258,6 +292,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
     if (getPage() === 'admin') loadOverview();
     if (getPage() === 'streamers' && location.hash === '#streamers') loadUsers();
     if (getPage() === 'tickets' && location.hash === '#tickets') loadTickets();
+    if (getPage() === 'discordlog') loadDiscord();
   }, 30_000);
 
   return {
@@ -266,7 +301,8 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
       else if (id === 'streamers') {
         $('#page-streamers').replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
         if (arg) { ui.tab = 'activity'; loadUser(arg); } else loadUsers();
-      } else if (id === 'tickets') {
+      } else if (id === 'discordlog') loadDiscord();
+      else if (id === 'tickets') {
         $('#page-tickets').replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
         if (arg) loadTicket(arg); else loadTickets();
       } else renderList(id);
