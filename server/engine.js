@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { kickStep, kickDue, postKickChat, kickBotReady } from './kick.js';
 import { updateUser, getSystemBot } from './auth.js';
 import { processChats, timerPosts, numberAlerts } from './tools.js';
+import { announceFromTick } from './discord.js';
 
 const PLATFORMS = ['youtube', 'kick'];
 export const blankPlatform = () => ({
@@ -54,6 +55,8 @@ export async function tick(user) {
     }
     states[p] = acc ? st : blankPlatform();
   }
+
+  await announceFromTick(user, states); // Discord: a stream just went live
 
   // Egg Bot: Discord → history → YouTube chat (announcements + !egghistory replies)
   const eggState = { ...(live.eggs || {}) };

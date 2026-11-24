@@ -1049,6 +1049,7 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
   .btn.creator-top-btn > .lbl { display: none; }
   .btn.whats-new-btn { font-size: 0; gap: 0; width: 30px; padding: 0; }
   .btn.creator-top-btn { width: 30px; padding: 0; }
+  .btn.creator-top-btn, .btn.whats-new-btn { flex: 0 0 30px; }
 }
 @media (max-width: 560px) {
   .creator-spotlight-content { grid-template-columns: 1fr; }

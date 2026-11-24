@@ -10,11 +10,11 @@ export const ADMIN_PAGES = {
 const PLATFORM = { youtube: 'YouTube', kick: 'Kick' };
 const KINDS = {
   auth: ['Sign-in', 'key'], account: ['Account', 'plug'], widget: ['Widgets', 'layout'], eggs: ['Egg Bot', 'egg'], tools: ['Live tools', 'zap'],
-  donate: ['Donations', 'heart'], media: ['Uploads', 'upload'], support: ['Support', 'help'], settings: ['Settings', 'settings'], page: ['Page', 'eye'], other: ['Other', 'info'],
+  donate: ['Donations', 'heart'], media: ['Uploads', 'upload'], support: ['Support', 'help'], discord: ['Discord', 'discord'], settings: ['Settings', 'settings'], page: ['Page', 'eye'], other: ['Other', 'info'],
 };
 const ISSUE_KINDS = {
   login: ['Failed sign-in', 'lock'], server: ['Server error', 'database'], browser: ['Browser error', 'monitor'], youtube: ['YouTube', 'radio'], kick: ['Kick', 'radio'],
-  eggs: ['Egg Bot', 'egg'], bot: ['Chat bot', 'message'], auth: ['Login', 'key'], access: ['Access denied', 'shield'], system: ['System', 'settings'], mail: ['Support e-mail', 'mail'],
+  eggs: ['Egg Bot', 'egg'], bot: ['Chat bot', 'message'], auth: ['Login', 'key'], access: ['Access denied', 'shield'], system: ['System', 'settings'], mail: ['Support e-mail', 'mail'], discord: ['Discord', 'discord'],
 };
 
 export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCsv, ICONS, getPage }) {

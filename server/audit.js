@@ -15,7 +15,7 @@ export const AUDIT_DAYS = 90;
 const DAY = 86_400_000;
 const TTL = AUDIT_DAYS * 86_400;
 const MAX = { user: 1000, pages: 200, all: 3000, issues: 1000 };
-export const PAGES = ['overview', 'studio', 'tools', 'donations', 'connections', 'eggs', 'logs', 'settings', 'support'];
+export const PAGES = ['overview', 'studio', 'tools', 'donations', 'connections', 'eggs', 'logs', 'settings', 'support', 'discord'];
 
 // ── Who is calling ──
 const clean = (v, n = 80) => String(v ?? '').replace(/[<>\u0000-\u001f\u007f]/g, '').trim().slice(0, n);
@@ -149,6 +149,11 @@ const RULES = [
   ['DELETE', /^\/tools\/donate\//, 'donate', 'Dismissed a donation'],
   ['POST', /^\/media$/, 'media', 'Uploaded a file'],
   ['DELETE', /^\/media\//, 'media', 'Deleted a file'],
+  ['PUT', /^\/discord$/, 'discord', 'Changed Discord settings', (b) => (b.enabled === undefined ? undefined : b.enabled ? 'ON' : 'OFF')],
+  ['DELETE', /^\/discord\/link$/, 'discord', 'Disconnected Discord'],
+  ['POST', /^\/discord\/test$/, 'discord', 'Sent a Discord test', (b) => clean(b.type, 20)],
+  ['POST', /^\/discord\/live$/, 'discord', 'Pressed "Go live now"', (b) => clean(b.platform, 20)],
+  ['POST', /^\/discord\/post$/, 'discord', 'Sent a Discord post'],
   ['POST', /^\/support$/, 'support', 'Contacted support', (b) => clean(b.category, 40)],
 ];
 /** Express middleware (after auth): records the action right before the JSON reply goes out. */

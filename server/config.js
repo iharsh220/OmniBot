@@ -26,7 +26,15 @@ export const config = {
     get smtpHost() { return String(e.SMTP_HOST || 'smtp.gmail.com').trim(); },
     get smtpPort() { return num(e.SMTP_PORT, 465); },
   },
-  discord: { get botToken() { return e.DISCORD_BOT_TOKEN || ''; } },
+  discord: {
+    get botToken() { return e.DISCORD_BOT_TOKEN || ''; },
+    // "Add to Discord" for every streamer (Discord Developer Portal → OAuth2 → Client Secret). Not needed for the owner's own server.
+    get clientSecret() { return String(e.DISCORD_CLIENT_SECRET || '').trim(); },
+    // YouTube channel(s) of the owner: their server is found automatically.
+    get streamers() { return String(e.DISCORD_OWNER_CHANNELS || 'UCDWjmqpDTta7B1TcYDnDgZQ').split(',').map((x) => x.trim()).filter(Boolean); },
+  },
+  // Secret of the 1-minute scheduler (Authorization: Bearer <CRON_SECRET>).
+  get cronSecret() { return String(e.CRON_SECRET || '').trim(); },
   // YouTube channel ID of the OmniChat Bot account. When that account signs in to OmniChat it becomes
   // the bot automatically, and only it can see/reconnect the bot settings.
   get botYouTubeChannelId() { return String(e.BOT_YOUTUBE_CHANNEL_ID || '').trim(); },

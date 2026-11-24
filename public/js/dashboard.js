@@ -4,6 +4,7 @@ import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
 import { createAdmin, ADMIN_PAGES } from './admin.js';
 import { createSupport } from './support.js';
+import { createDiscord } from './discord.js';
 import { AlertsView, GoalView, PollView, DonateView, startAlertDemo, demoPoll, demoGoalState, demoDonate, playAlertSound, synth } from './live-views.js';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -116,12 +117,14 @@ const PAGES = {
   eggs: ['Egg Bot', 'Post Steal an Egg spawns from your Discord into YouTube & Kick chat'],
   logs: ['Logs', 'What OmniChat is doing, and your chat history'],
   settings: ['Settings', 'Appearance, privacy and security'],
+  discord: ['Discord', 'Announce live streams, videos, Shorts and posts in your Discord server'],
   support: ['Help & support', 'Tell us what went wrong — add a screenshot and we will help'],
   ...ADMIN_PAGES,
 };
 // The OmniChat Bot account gets the admin panel instead of the streamer pages (it never streams).
-const STREAMER_ONLY = ['overview', 'studio', 'tools', 'donations', 'support'];
+const STREAMER_ONLY = ['overview', 'studio', 'tools', 'donations', 'support', 'discord'];
 let admin = null;
+const discord = createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICONS, getPage: () => page });
 const support = createSupport({ $, h, ic, api, toast, ago, fmtTime, getPage: () => page });
 
 // ═════════════════════════════════════════════════════════════════════
@@ -1750,7 +1753,7 @@ function showPage(p) {
   }
   const [id, arg] = String(p).split('/');
   const home = me.user.isAdmin ? 'admin' : 'overview';
-  const allowed = PAGES[id] && (me.user.isAdmin ? !STREAMER_ONLY.includes(id) : !ADMIN_PAGES[id]);
+  const allowed = PAGES[id] && (id !== 'discord' || me.user.discord) && (me.user.isAdmin ? !STREAMER_ONLY.includes(id) : !ADMIN_PAGES[id]);
   prevPage = allowed ? id : home;
   page = prevPage;
   for (const id of Object.keys(PAGES)) $(`#page-${id}`).hidden = id !== page;
@@ -1772,6 +1775,7 @@ function showPage(p) {
   }
   if (page === 'settings') renderSettings();
   if (page === 'support') support.show();
+  if (page === 'discord') discord.show();
   if (ADMIN_PAGES[page]) admin.show(page, arg);
   else if (!me.user.isAdmin) report({ type: 'page', page });
 }
@@ -1794,6 +1798,7 @@ window.addEventListener('unhandledrejection', (e) => reportCrash(e.reason?.messa
 function applyRole() {
   const role = me.user.isAdmin ? 'admin' : 'streamer';
   $$('[data-role]').forEach((el) => { el.hidden = el.dataset.role !== role; });
+  $('#nav-discord').hidden = !me.user.discord;
   if (!me.user.isAdmin) return;
   admin = createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCsv, ICONS, getPage: () => page });
   $('#brand-sub').textContent = 'Admin panel';

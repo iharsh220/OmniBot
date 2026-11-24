@@ -2,8 +2,8 @@
 // (root app.js/index.js and api/*.mjs).
 import express from 'express';
 import { config, providersConfigured } from './config.js';
-import { securityHeaders, sameOrigin, limit, ah, parseCookies, reqHost } from './http.js';
-import { randomId } from './crypto.js';
+import { securityHeaders, sameOrigin, limit, ah, parseCookies, reqHost, cookie, isSecureReq } from './http.js';
+import { randomId, safeEqual } from './crypto.js';
 import * as db from './store.js';
 import { storeMode } from './store.js';
 import {
@@ -15,6 +15,10 @@ import { log, addLogs, addEvents, readEvents, readLogs, readHistory } from './fe
 import { tick, publicState } from './engine.js';
 import { verifyKickWebhook, webhookToEvents } from './kick.js';
 import { boardList, eggSettings, readEggs, readFeed, refreshGlobalFeed, formatEgg, kickHistoryReply, getEggChannelId, setEggChannelId } from './eggs.js';
+import {
+  discordAvailable, discordStatus, validateDiscord, registerDiscord, unlinkDiscord, inviteUrl, finishInvite, sendTest, goLiveNow, sendPost,
+  announceKickWebhook, obsSignal, cron as discordCron, confirmPush, receivePush, ensurePush,
+} from './discord.js';
 import { postChat, youtubeBotReady, canWriteChat } from './youtube.js';
 import { postKickChat, kickBotReady } from './kick.js';
 import { isBotAccount, getSystemBot, getSystemKickBot, renewSession, lastLoginCookie, readLastLogin, clearLastLogin } from './auth.js';
@@ -102,6 +106,32 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
   }
 }));
 
+// "Add to Discord": link ONE Discord server to the signed-in streamer (Discord proves they manage it).
+app.get('/auth/discord', limit('auth', 30, 60_000), ah(async (req, res) => {
+  const canonical = otherHost(req);
+  if (canonical) return res.redirect(`${config.appUrl}/auth/discord`);
+  const user = await currentUser(req);
+  if (!user) return res.redirect('/login');
+  if (!config.discord.botToken || !config.discord.clientSecret) return res.redirect('/?error=Discord%20is%20not%20configured%20on%20this%20server#discord');
+  const a = await inviteUrl(user.id);
+  setCookies(res, [cookie('oc_discord', a.cookie, 600, isSecureReq(req))]);
+  res.redirect(a.url);
+}));
+app.get('/auth/discord/callback', limit('auth', 30, 60_000), ah(async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect('/login');
+  setCookies(res, [cookie('oc_discord', '', 0, isSecureReq(req))]);
+  try {
+    const name = await finishInvite(user, parseCookies(req).oc_discord, req.query);
+    await log(user.id, 'info', 'discord', `Discord server connected: ${name}`);
+    await record(req, { uid: user.id, kind: 'discord', action: 'Connected Discord', detail: name });
+    res.redirect('/#discord');
+  } catch (e) {
+    await issue(req, { uid: user.id, level: 'warn', kind: 'discord', message: `Discord connect failed: ${e.message}`, dedupeMs: 60_000 });
+    res.redirect(`/?error=${encodeURIComponent(e.status ? e.message : 'Discord could not be connected')}#discord`);
+  }
+}));
+
 app.post('/auth/logout', ah(async (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
   const user = await currentUser(req);
@@ -127,6 +157,7 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
   try { payload = JSON.parse(raw); } catch { return res.status(400).json({ error: 'Invalid JSON' }); }
   const out = await webhookToEvents(String(req.headers['kick-event-type'] || ''), payload, String(req.headers['kick-event-message-id'] || ''));
   if (out) {
+    if (req.headers['kick-event-type'] === 'livestream.status.updated') await announceKickWebhook(out.user, payload); // first: this ping is the urgent part
     await numberAlerts(out.uid, out.chats).catch(() => {});
     await addEvents(out.uid, { chats: out.chats, historyDays: out.user.historyDays ?? 7 });
     if (out.followersDelta) await updateUser(out.uid, (u) => { const a = u?.accounts?.kick; if (!a || a.kickFollowers == null) return undefined; a.kickFollowers += out.followersDelta; return u; });
@@ -157,6 +188,23 @@ app.post('/webhooks/kick', limit('webhook', 1200, 60_000), express.raw({ type: '
     }
   }
   res.json({ ok: true });
+}));
+
+// ── YouTube push (WebSub): Google confirms our subscription, then tells us about new videos ──
+app.get('/webhooks/youtube/:uid([\\w-]{6,40})', limit('webhook', 1200, 60_000), ah(async (req, res) => {
+  const challenge = await confirmPush(req.params.uid, req.query);
+  if (!challenge) return res.status(404).type('text/plain').send('not found');
+  res.type('text/plain').send(challenge);
+}));
+app.post('/webhooks/youtube/:uid([\\w-]{6,40})', limit('webhook', 1200, 60_000), express.raw({ type: '*/*', limit: '200kb' }), ah(async (req, res) => {
+  res.status(await receivePush(req.params.uid, req.headers['x-hub-signature'], Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0))).end();
+}));
+// ── 1-minute scheduler (cron-job.org or similar) ──
+app.get('/api/cron/discord', limit('cron', 30, 60_000), ah(async (req, res) => {
+  const given = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!config.cronSecret || !safeEqual(given, config.cronSecret)) return res.status(401).json({ error: 'Unauthorized' });
+  const r = await discordCron();
+  res.json({ ok: !r.error, checked: r.checked, ...(r.error ? { error: r.error } : {}) });
 }));
 
 app.use(express.json({ limit: '200kb' }));
@@ -193,6 +241,15 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
   const out = { ...(await readEvents(user.id, num(req.query.c))), state: publicState(live, user, { forWidget: true }), v: w.updatedAt };
   if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
   res.json(out);
+}));
+
+// An overlay inside OBS: "streaming just started" → check YouTube/Kick at once.
+app.post(`/api/w/${ID}/obs`, limit('obs', 90, 60_000), ah(async (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
+  const w = await db.get(`widget/${req.params.id}`);
+  const user = w && (await getUser(w.uid));
+  if (!user) return res.status(404).json({ error: 'Widget not found' });
+  res.json(await obsSignal(user, req.body?.event === 'start' ? 'start' : 'check'));
 }));
 
 // Public (login page): which providers work + the last login on THIS browser for "Continue as …".
@@ -276,7 +333,7 @@ api.get('/me', ah(async (req, res) => {
   const u = await getUser(req.user.id);
   const widgets = (await Promise.all((u.widgets || []).map((id) => db.get(`widget/${id}`)))).filter(Boolean).map(widgetOut);
   res.json({
-    user: { id: u.id, name: u.name, avatar: u.avatar, createdAt: u.createdAt, historyDays: u.historyDays ?? 7, sessions: sessionCount(u), isAdmin: isBotAccount(u) },
+    user: { id: u.id, name: u.name, avatar: u.avatar, createdAt: u.createdAt, historyDays: u.historyDays ?? 7, sessions: sessionCount(u), isAdmin: isBotAccount(u), discord: !isBotAccount(u) && discordAvailable(u) },
     accounts: Object.values(u.accounts || {}).map(publicAccount), widgets, providers: providersConfigured(), appUrl: config.appUrl,
   });
 }));
@@ -305,6 +362,7 @@ api.delete('/me', ah(async (req, res) => {
   if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
   setCookies(res, [await destroySession(req), clearLastLogin(req)]);
   req.noAudit = true;
+  await registerDiscord(req.user.id, false).catch(() => {});
   await forgetTickets(req.user.id).catch((e) => console.error('[support] forget', e.message)); // never blocks the deletion (tickets expire anyway)
   await deleteUser(req.user.id);
   await forgetUser(req.user.id).catch((e) => console.error('[audit] forget', e.message)); // the account itself is already gone
@@ -543,6 +601,40 @@ api.get('/tools/summary', ah(async (req, res) => {
   const live = await db.get(`live/${req.user.id}`);
   const s = await summary(req.user.id, req.query.hours, live?.session || null);
   res.json({ ...s, historyOff: (req.user.historyDays ?? 7) === 0 });
+}));
+
+// ── Discord announcements ──
+const discordOnly = ah(async (req, res, next) => (discordAvailable(req.user) ? next() : res.status(403).json({ error: 'Discord announcements are not available for this account' })));
+api.use('/discord', discordOnly);
+api.get('/discord', ah(async (req, res) => res.json(await discordStatus(req.user))));
+api.put('/discord', ah(async (req, res) => {
+  const next = await validateDiscord(req.body || {}, req.user);
+  const user = await updateUser(req.user.id, (u) => (u ? { ...u, discord: next } : undefined));
+  await registerDiscord(user.id, next.enabled);
+  if (next.enabled) await ensurePush(user).catch((e) => log(user.id, 'warn', 'discord', e.message));
+  res.json({ ok: true });
+}));
+api.delete('/discord/link', ah(async (req, res) => { await unlinkDiscord(req.user); res.json({ ok: true }); }));
+api.post('/discord/test', limit('dtest', 10, 60_000), ah(async (req, res) => res.json({ ok: true, ...(await sendTest(req.user, String(req.body?.type || ''))) })));
+api.post('/discord/live', limit('dlive', 6, 60_000), ah(async (req, res) => {
+  const result = await goLiveNow(req.user, req.body?.platform === 'kick' ? 'kick' : 'youtube');
+  if (result === 'failed') return res.status(502).json({ error: 'Discord did not accept the message (see Logs)' });
+  res.json({ ok: true, result });
+}));
+api.post('/discord/post', limit('dpost', 10, 60_000), ah(async (req, res) => {
+  const b = req.body || {};
+  let file;
+  if (b.image) { // uploaded through /api/media first; sent as a Discord attachment and removed again
+    const id = String(b.image);
+    const meta = /^[\w-]{8,40}$/.test(id) ? await db.get(`media/${id}`) : null;
+    if (!meta || meta.uid !== req.user.id || !meta.type.startsWith('image/')) return res.status(400).json({ error: 'Picture not found, please add it again' });
+    const m = await readMedia(id);
+    if (m) file = { ...m, name: `picture.${m.type.split('/')[1].replace('jpeg', 'jpg')}` };
+  }
+  const result = await sendPost(req.user, { text: b.text, url: b.url }, file);
+  if (result === 'failed') return res.status(502).json({ error: 'Discord did not accept the post (see Logs)' });
+  if (b.image) await deleteMedia(req.user.id, String(b.image));
+  res.json({ ok: true, result });
 }));
 
 // ── Help & support: message + screenshots → ticket (admin panel) + e-mail ──

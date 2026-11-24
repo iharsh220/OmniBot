@@ -44,6 +44,9 @@
   <h2>Help and support</h2>
   <p>When you use <strong>Help &amp; support</strong>, your message, the e-mail address you enter (optional), your screenshots, and your IP address, approximate location and device are saved for the OmniChat administrator and the message with screenshots is sent to the OmniChat support mailbox. Please hide private details in screenshots. Saved requests are deleted after 90 days or when you delete your account; e-mails already in the support mailbox can be removed on request.</p>
 
+  <h2>Discord</h2>
+  <p>If you add OmniChat to your Discord server, OmniChat stores the server's ID and name and your announcement settings, reads the channel list and the bot's permissions, and posts announcements there. Nothing else from your server is read for this. Disconnecting or deleting your account removes it.</p>
+
   <h2>Data storage</h2>
   <p>Data is stored in <strong>Upstash Redis</strong> (connected through Vercel). OAuth tokens are encrypted (AES-256-GCM) before they are stored. You can delete your account anytime from the dashboard, which permanently removes all your data.</p>
 
@@ -51,6 +54,7 @@
   <ul>
     <li><strong>Google/YouTube APIs</strong> — for chat and channel data</li>
     <li><strong>Kick API</strong> — for chat and channel data</li>
+    <li><strong>Discord</strong> — announcements, if you connect a server</li>
     <li><strong>Vercel</strong> — hosting and serverless functions</li>
     <li><strong>E-mail provider (Gmail)</strong> — delivers support requests to our mailbox</li>
     <li><strong>Upstash</strong> — data storage (Redis)</li>

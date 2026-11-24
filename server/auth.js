@@ -536,7 +536,7 @@ export async function deleteUser(uid) {
     ...Object.values(u.accounts || {}).map((a) => `link/${a.provider}/${a.providerUserId}`),
     ...(u.sessions || []).map((s) => `session/${s.hash}`),
     ...(u.widgets || []).map((id) => `widget/${id}`),
-    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `poll/${uid}`, `cmds/${uid}`, `alertcount/${uid}`, `donations/${uid}`, `audit/${uid}`, `pages/${uid}`, `seen/${uid}`, `user/${uid}`,
+    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `poll/${uid}`, `cmds/${uid}`, `alertcount/${uid}`, `donations/${uid}`, `discord/${uid}`, `audit/${uid}`, `pages/${uid}`, `seen/${uid}`, `user/${uid}`,
   ];
   // uploaded alert pictures / sounds (meta + chunks)
   for (const id of u.media || []) {

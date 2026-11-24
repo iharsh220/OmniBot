@@ -84,6 +84,7 @@ export async function kickStep(ctx, acc) {
     if (o) {
       const live = !!o.stream?.is_live;
       if (live !== !!st.live) L('info', live ? `LIVE: "${o.stream_title || ''}"` : 'Stream ended');
+      Object.assign(st, { _startedAt: live && Date.parse(o.stream.start_time) > 1e12 ? Date.parse(o.stream.start_time) : null, _image: o.stream?.thumbnail || null, game: live ? o.category?.name || null : null });
       Object.assign(st, { live, viewers: live ? o.stream.viewer_count ?? 0 : null, title: o.stream_title || null, subscribers: o.active_subscribers_count ?? null, error: null });
       if (live && !acc.kickChannelId) {
         try {
@@ -96,6 +97,14 @@ export async function kickStep(ctx, acc) {
     st.error = e.reconnect ? e.message : `Kick API: ${e.message}`;
     L(e.reconnect ? 'error' : 'warn', st.error);
   }
+}
+
+/** Is this Kick channel live right now? (Discord announcements) */
+export async function kickChannel(uid, acc) {
+  const o = (await api(uid, `/channels?slug=${encodeURIComponent(acc.channelSlug)}`)).data?.[0];
+  if (!o) return null;
+  const start = Date.parse(o.stream?.start_time);
+  return { live: !!o.stream?.is_live, title: o.stream_title || null, start: start > 1e12 ? start : null, image: o.stream?.thumbnail || null, game: o.category?.name || null };
 }
 
 // ── Webhooks ──

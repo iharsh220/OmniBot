@@ -60,23 +60,26 @@ async function yt(ctx, path, params) {
   return j;
 }
 
+const bestThumb = (s) => { const t = s?.thumbnails || {}; return (t.maxres || t.standard || t.high || t.medium || t.default)?.url || null; };
+
 async function videoInfo(ctx, id) {
-  const v = (await yt(ctx, '/videos', { part: 'snippet,liveStreamingDetails', id })).items?.[0];
+  const v = (await yt(ctx, '/videos', { part: 'snippet,liveStreamingDetails,status', id })).items?.[0];
   const d = v?.liveStreamingDetails;
   if (!d || d.actualEndTime || !d.activeLiveChatId) return null;
-  return { chatId: d.activeLiveChatId, viewers: d.concurrentViewers !== undefined ? Number(d.concurrentViewers) : 0, title: v.snippet.title };
+  return { chatId: d.activeLiveChatId, viewers: d.concurrentViewers !== undefined ? Number(d.concurrentViewers) : 0, title: v.snippet.title,
+    privacy: v.status?.privacyStatus || null, startedAt: Date.parse(d.actualStartTime) || null, image: bestThumb(v.snippet) };
 }
 
 async function findLiveVideoId(ctx, channelId) {
   try {
     const j = await yt(ctx, '/liveBroadcasts', { part: 'id', broadcastStatus: 'active', broadcastType: 'all', maxResults: 5 });
-    if (j.items?.length) return j.items[0].id;
+    if (j.items?.length) return { id: j.items[0].id, official: true };
   } catch (e) { if (e.reconnect) throw e; }
   try { // 0-quota fallback: the public /live page
     const r = await tfetch(`https://www.youtube.com/channel/${channelId}/live`, { headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en-US,en;q=0.9' } });
     const html = await r.text();
     const m = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/);
-    if (m && html.includes('"isLive":true')) return m[1];
+    if (m && html.includes('"isLive":true')) return { id: m[1], official: false };
   } catch { /* ignore */ }
   return null;
 }
@@ -162,11 +165,14 @@ export async function youtubeStep(ctx, acc) {
     if (!st.live) {
       if (now < (st._nextLiveCheckAt || 0)) return;
       st._nextLiveCheckAt = now + config.youtube.offlineCheckMs;
-      const videoId = await findLiveVideoId(ctx, acc.channelId);
+      const found = await findLiveVideoId(ctx, acc.channelId);
+      const videoId = found?.id;
       const info = videoId ? await videoInfo(ctx, videoId) : null;
       if (!info) return;
       Object.assign(st, {
         live: true, viewers: info.viewers, title: info.title, url: `https://youtu.be/${videoId}`, chatConnected: true, error: null,
+        // for the Discord announcement (official API results only)
+        _official: found.official, _privacy: info.privacy, _startedAt: info.startedAt || now, _image: info.image,
         _videoId: videoId, _chatId: info.chatId, _pageToken: null, _since: now - 2 * 60_000, _nextChatAt: 0, _nextStatsAt: now + 30_000,
       });
       L('info', `LIVE: "${info.title}" (${videoId}) — chat connected`);
@@ -217,6 +223,40 @@ export async function youtubeStep(ctx, acc) {
     L(e.reconnect ? 'error' : 'warn', st.error);
     if (e.reconnect) st._nextLiveCheckAt = now + 10 * 60_000;
   }
+}
+
+// ── Discord announcements: one-off calls with a ready access token ──
+async function ytGet(token, path, params) {
+  const url = new URL(API + path);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  const r = await tfetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error?.message || `HTTP ${r.status}`), { status: r.status, reason: j.error?.errors?.[0]?.reason });
+  return j;
+}
+/** The streamer's own broadcasts that are live right now (1 quota unit). */
+export async function activeBroadcasts(token) {
+  const j = await ytGet(token, '/liveBroadcasts', { part: 'snippet,status', broadcastStatus: 'active', broadcastType: 'all', maxResults: 10 });
+  return (j.items || []).filter((b) => b.status?.lifeCycleStatus === 'live').map((b) => ({
+    id: b.id, title: b.snippet.title, privacy: b.status.privacyStatus, start: Date.parse(b.snippet.actualStartTime) || Date.now(), image: bestThumb(b.snippet),
+  }));
+}
+/** Details of some videos (1 unit). width/height come from the player and tell upright videos (Shorts) apart. */
+export async function videosByIds(token, ids) {
+  if (!ids.length) return [];
+  const j = await ytGet(token, '/videos', { part: 'snippet,status,contentDetails,liveStreamingDetails,player', id: ids.join(','), maxHeight: 720, maxWidth: 1280 });
+  return (j.items || []).map((v) => ({
+    id: v.id, channelId: v.snippet.channelId, title: v.snippet.title, published: Date.parse(v.snippet.publishedAt) || 0, broadcast: v.snippet.liveBroadcastContent, image: bestThumb(v.snippet),
+    privacy: v.status?.privacyStatus, durationIso: v.contentDetails?.duration, wasLive: !!v.liveStreamingDetails, start: Date.parse(v.liveStreamingDetails?.actualStartTime) || Date.now(),
+    width: Number(v.player?.embedWidth) || 0, height: Number(v.player?.embedHeight) || 0,
+  }));
+}
+/** Newest uploads (1 unit; +1 the first time to look up the uploads playlist). */
+export async function uploadIds(token, channelId, playlist) {
+  const list = playlist || (await ytGet(token, '/channels', { part: 'contentDetails', id: channelId })).items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  if (!list) return { playlist: null, items: [] };
+  const j = await ytGet(token, '/playlistItems', { part: 'contentDetails', playlistId: list, maxResults: 5 });
+  return { playlist: list, items: (j.items || []).map((x) => ({ id: x.contentDetails.videoId, published: Date.parse(x.contentDetails.videoPublishedAt) || 0 })) };
 }
 
 /** Send a message to a live chat as the shared OmniChat Bot (youtube.force-ssl). ~50 quota units. */

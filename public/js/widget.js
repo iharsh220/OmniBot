@@ -87,6 +87,24 @@ async function main() {
     onSettings: ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings })),
   }, { v: version, interval: type === 'stats' ? 10_000 : 4_000 });
 }
+// Inside OBS (Browser source): when "Start Streaming" is pressed, ask the server to look for the new stream right away,
+// so the Discord announcement does not wait for the next check. Does nothing in a normal browser.
+if (id && window.obsstudio) {
+  let running = false;
+  window.addEventListener('obsStreamingStarted', async () => {
+    if (running) return;
+    running = true;
+    const ask = (event) => fetch(`/api/w/${id}/obs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event }) }).then((r) => (r.ok ? r.json() : { more: false }));
+    let event = 'start';
+    for (let i = 0; i < 36; i++) {
+      let more = true;
+      try { more = (await ask(event)).more; event = 'check'; } catch { /* offline for a moment: try again */ }
+      if (!more) break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    running = false;
+  });
+}
 main().catch((e) => {
   const d = document.createElement('div');
   d.className = 'ow-error';
