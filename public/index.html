@@ -13,29 +13,39 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="/css/widget.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-    <a class="brand" href="#overview"><img src="/favicon.svg" alt="" /><div><b>OmniChat</b><small>Stream Studio</small></div></a>
+    <a class="brand" href="#overview"><img src="/favicon.svg" alt="" /><div><b>OmniChat</b><small id="brand-sub">Stream Studio</small></div></a>
 
-    <div class="nav-label">Workspace</div>
-    <a class="nav-item" data-page="overview" href="#overview"><span data-icon="home"></span>Overview<span class="dot-live" id="nav-live" hidden></span></a>
-    <a class="nav-item" data-page="studio" href="#studio"><span data-icon="palette"></span>Studio<span class="count" id="nav-widgets">0</span></a>
-    <a class="nav-item" data-page="tools" href="#tools"><span data-icon="zap"></span>Live tools</a>
-    <a class="nav-item" data-page="donations" href="#donations"><span data-icon="heart"></span>Donations<span class="count" id="nav-donations" hidden>0</span></a>
+    <div class="nav-label" data-role="admin" hidden>Admin</div>
+    <a class="nav-item" data-page="admin" data-role="admin" href="#admin" hidden><span data-icon="chart"></span>Admin overview</a>
+    <a class="nav-item" data-page="streamers" data-role="admin" href="#streamers" hidden><span data-icon="users"></span>Streamers</a>
+    <a class="nav-item" data-page="activity" data-role="admin" href="#activity" hidden><span data-icon="clock"></span>Activity</a>
+    <a class="nav-item" data-page="issues" data-role="admin" href="#issues" hidden><span data-icon="alert"></span>Issues</a>
+    <a class="nav-item" data-page="tickets" data-role="admin" href="#tickets" hidden><span data-icon="mail"></span>Support requests<span class="count" id="nav-tickets" hidden>0</span></a>
+
+    <div class="nav-label" data-role="streamer">Workspace</div>
+    <div class="nav-label" data-role="admin" hidden>Bot</div>
+    <a class="nav-item" data-page="overview" data-role="streamer" href="#overview"><span data-icon="home"></span>Overview<span class="dot-live" id="nav-live" hidden></span></a>
+    <a class="nav-item" data-page="studio" data-role="streamer" href="#studio"><span data-icon="palette"></span>Studio<span class="count" id="nav-widgets">0</span></a>
+    <a class="nav-item" data-page="tools" data-role="streamer" href="#tools"><span data-icon="zap"></span>Live tools</a>
+    <a class="nav-item" data-page="donations" data-role="streamer" href="#donations"><span data-icon="heart"></span>Donations<span class="count" id="nav-donations" hidden>0</span></a>
     <a class="nav-item" data-page="connections" href="#connections"><span data-icon="plug"></span>Connections</a>
-    <a class="nav-item" data-page="eggs" href="#eggs"><span data-icon="egg"></span>Egg Bot</a>
+    <a class="nav-item" data-page="eggs" href="#eggs"><span data-icon="egg"></span><span id="nav-eggs-label">Egg Bot</span></a>
     <a class="nav-item" data-page="logs" href="#logs"><span data-icon="logs"></span>Logs</a>
 
     <div class="nav-label">Account</div>
     <a class="nav-item" data-page="settings" href="#settings"><span data-icon="settings"></span>Settings</a>
+    <a class="nav-item" data-page="support" data-role="streamer" href="#support"><span data-icon="help"></span>Help &amp; support</a>
 
-    <div class="nav-label">Updates</div>
-    <a class="nav-item" data-page="whats-new" href="#whats-new"><span data-icon="sparkles"></span>What's new<span class="count" style="background:var(--accent);color:#fff">New</span></a>
+    <div class="nav-label" data-role="streamer">Updates</div>
+    <a class="nav-item" data-page="whats-new" data-role="streamer" href="#whats-new"><span data-icon="sparkles"></span>What's new<span class="count" style="background:var(--accent);color:#fff">New</span></a>
 
-    <div class="nav-label">Developer</div>
-    <a class="nav-item creator-nav-item" data-page="creator" href="#creator" id="nav-creator"><span class="creator-nav-emoji">☕</span>Support SmartWolf<span class="count creator-badge">Free</span></a>
+    <div class="nav-label" data-role="streamer">Developer</div>
+    <a class="nav-item creator-nav-item" data-page="creator" data-role="streamer" href="#creator" id="nav-creator"><span data-icon="coffee"></span>Support SmartWolf<span class="count creator-badge">Free</span></a>
 
     <div class="sidebar-foot">
       <div class="theme-switch" id="theme-switch" role="group" aria-label="Theme"></div>
@@ -53,12 +63,12 @@
       <button class="btn ghost icon menu-btn" id="menu-btn" aria-label="Open menu"><span data-icon="menu"></span></button>
       <div><h1 id="page-title">Overview</h1><p id="page-sub"></p></div>
       <div class="spacer"></div>
-      <button class="btn sm creator-top-btn" id="open-creator" type="button" title="Developed by SmartWolf — Buy a coffee"><span class="creator-btn-emoji">☕</span><span>Support SmartWolf</span></button>
-      <button class="btn sm whats-new-btn" id="open-whats-new" type="button"><span data-icon="sparkles"></span>What's new</button>
+      <button class="btn sm creator-top-btn" data-role="streamer" id="open-creator" type="button" title="Developed by SmartWolf — Buy a coffee"><span data-icon="coffee"></span><span class="lbl">Support SmartWolf</span></button>
+      <button class="btn sm whats-new-btn" data-role="streamer" id="open-whats-new" type="button"><span data-icon="sparkles"></span>What's new</button>
       <div class="status-pills">
         <span class="pill" id="pill-server"><span class="dot"></span>Server</span>
-        <span class="pill" id="pill-youtube"><span class="dot"></span>YouTube</span>
-        <span class="pill" id="pill-kick"><span class="dot"></span>Kick</span>
+        <span class="pill" id="pill-youtube" data-role="streamer"><span class="dot"></span>YouTube</span>
+        <span class="pill" id="pill-kick" data-role="streamer"><span class="dot"></span>Kick</span>
       </div>
     </header>
 
@@ -124,6 +134,12 @@
     <section class="page" id="page-eggs" hidden></section>
     <section class="page" id="page-logs" hidden></section>
     <section class="page" id="page-settings" hidden></section>
+    <section class="page" id="page-admin" hidden></section>
+    <section class="page" id="page-streamers" hidden></section>
+    <section class="page" id="page-activity" hidden></section>
+    <section class="page" id="page-issues" hidden></section>
+    <section class="page" id="page-tickets" hidden></section>
+    <section class="page" id="page-support" hidden></section>
   </div>
 </div>
 <div class="toasts" id="toasts" aria-live="polite"></div>

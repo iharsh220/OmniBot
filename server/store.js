@@ -27,6 +27,19 @@ const local = {
     return { modified: true };
   },
   async delete(k) { delete load()[k]; save(); },
+  async scan(prefix) { return Object.keys(load()).filter((k) => k.startsWith(prefix)); },
+  async mget(keys) { return Promise.all(keys.map((k) => local.get(k))); },
+  async pushMany(lists, value, { cutoff }) {
+    for (const [k, max] of lists) {
+      const list = [structuredClone(value), ...(load()[k]?.data || [])].slice(0, max);
+      while (list.length && list.at(-1).ts < cutoff) list.pop();
+      load()[k] = { data: list, etag: crypto.randomUUID() };
+    }
+    save();
+  },
+  async range(k, start, stop) { return structuredClone((load()[k]?.data || []).slice(start, stop + 1)); },
+  async dropFromList(k, field, v) { const e = load()[k]; if (e) { e.data = e.data.filter((x) => x[field] !== v); save(); } },
+  async expire() { /* local file: no TTL */ },
 };
 
 // ── Upstash Redis / Vercel KV (REST) ──
@@ -68,6 +81,27 @@ redis.call('SET', KEYS[1], ARGV[1])
 redis.call('SET', KEYS[2], ARGV[2])
 return 1`;
 
+// Lists (audit trail): push to several lists in one atomic call, cap them, drop entries older than the cutoff, set a TTL.
+const LUA_PUSH = `for i, k in ipairs(KEYS) do
+  redis.call('LPUSH', k, ARGV[1])
+  redis.call('LTRIM', k, 0, tonumber(ARGV[3 + i]) - 1)
+  for n = 1, 20 do
+    local t = redis.call('LINDEX', k, -1)
+    if not t then break end
+    local ok, d = pcall(cjson.decode, t)
+    if ok and type(d) == 'table' and tonumber(d.ts) and tonumber(d.ts) < tonumber(ARGV[2]) then redis.call('RPOP', k) else break end
+  end
+  redis.call('EXPIRE', k, tonumber(ARGV[3]))
+end
+return 1`;
+
+const LUA_DROP = `local n = 0
+for _, raw in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+  local ok, d = pcall(cjson.decode, raw)
+  if ok and type(d) == 'table' and d[ARGV[1]] == ARGV[2] then n = n + redis.call('LREM', KEYS[1], 0, raw) end
+end
+return n`;
+
 const redisStore = {
   async get(k) {
     const raw = await kvCmd(['GET', K(k)]);
@@ -95,6 +129,33 @@ const redisStore = {
   async delete(k) {
     await kvCmd(['DEL', K(k), E(k)]);
   },
+  /** Every key starting with `prefix` (admin panel only). */
+  async scan(prefix) {
+    const out = new Set();
+    let cursor = '0';
+    do {
+      const [next, keys] = await kvCmd(['SCAN', cursor, 'MATCH', `${K(prefix)}*`, 'COUNT', '1000']);
+      for (const k of keys) if (!k.endsWith(':etag')) out.add(k.slice(K('').length));
+      cursor = String(next);
+    } while (cursor !== '0');
+    return [...out];
+  },
+  async mget(keys) {
+    const out = [];
+    for (let i = 0; i < keys.length; i += 25) { // small chunks: Upstash limits the size of one reply
+      const raw = await kvCmd(['MGET', ...keys.slice(i, i + 25).map(K)]);
+      out.push(...raw.map((x) => (x == null ? null : JSON.parse(x))));
+    }
+    return out;
+  },
+  async pushMany(lists, value, { cutoff, ttl }) {
+    await kvCmd(['EVAL', LUA_PUSH, String(lists.length), ...lists.map(([k]) => K(k)), JSON.stringify(value), String(cutoff), String(ttl), ...lists.map(([, max]) => String(max))]);
+  },
+  async range(k, start, stop) {
+    return (await kvCmd(['LRANGE', K(k), String(start), String(stop)])).map((x) => JSON.parse(x));
+  },
+  async dropFromList(k, field, v) { await kvCmd(['EVAL', LUA_DROP, '1', K(k), field, String(v)]); },
+  async expire(k, sec) { await Promise.all([kvCmd(['EXPIRE', K(k), String(sec)]), kvCmd(['EXPIRE', E(k), String(sec)])]); },
 };
 
 /**
@@ -119,6 +180,12 @@ const backend = () => {
 export const get = (k) => backend().get(k);
 export const set = (k, v) => backend().setJSON(k, v);
 export const del = (k) => backend().delete(k);
+export const scan = (prefix) => backend().scan(prefix);
+export const mget = async (keys) => (keys.length ? backend().mget(keys) : []);
+export const pushMany = (lists, value, opts) => backend().pushMany(lists, value, opts);
+export const range = (k, start, stop) => backend().range(k, start, stop);
+export const dropFromList = (k, field, v) => backend().dropFromList(k, field, v);
+export const expire = (k, sec) => backend().expire(k, sec);
 
 /**
  * Read-modify-write with optimistic concurrency (etag): retries if another request

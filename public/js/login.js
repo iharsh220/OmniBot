@@ -37,6 +37,12 @@ document.getElementById('last-forget').addEventListener('click', () => {
 
 fetch('/api/providers', { credentials: 'same-origin', cache: 'no-store' }).then((r) => r.json()).then((p) => {
   showLast(p.last, p);
+  if (p.supportEmail) {
+    const a = document.getElementById('support-mail');
+    a.textContent = p.supportEmail;
+    a.href = `mailto:${p.supportEmail}?subject=${encodeURIComponent('OmniChat: I cannot sign in')}`;
+    document.getElementById('support-line').hidden = false;
+  }
   for (const k of ['youtube', 'kick']) if (!p[k]) {
     const b = document.getElementById('btn-' + k);
     b.classList.add('disabled');

@@ -22,6 +22,9 @@ import { normalizeSettings } from '../public/js/settings.js';
 import { saveMedia, readMedia, deleteMedia, MAX_BYTES } from './media.js';
 import QRCode from 'qrcode';
 import { donateSettings, validateDonate, publicDonate, submitDonation, readDonations, confirmDonation, dismissDonation, addManualDonation } from './donate.js';
+import { record, issue, recordPage, markSeen, markOverlay, forgetUser, auditWrites } from './audit.js';
+import admin from './admin.js';
+import { SHOT_BYTES, CATEGORIES, saveShot, createTicket, listTickets, mailReady, forgetTickets } from './support.js';
 import { numberAlerts, testAlert, highlightMessage, clearHighlight, readPoll, publicPoll, startPoll, endPoll, clearPoll, processChats, toolSettings, validateTools, summary } from './tools.js';
 
 const app = express();
@@ -75,9 +78,16 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
   const { provider } = req.params;
   const user = await currentUser(req);
   try {
-    const { uid, linked, bot, needsBotScope, needsConsent } = await handleCallback(provider, req);
+    const { uid, linked, bot, needsBotScope, needsConsent, created, channelName } = await handleCallback(provider, req);
     const fresh = !linked || !user;
     setCookies(res, [clearStateCookie(req), fresh ? await createSession(uid, req) : null]);
+    const label = provider === 'youtube' ? 'YouTube' : 'Kick';
+    if (fresh) await updateUser(uid, (u) => (u ? { ...u, lastLoginAt: Date.now(), loginCount: (u.loginCount || 0) + 1 } : undefined));
+    await record(req, {
+      uid, kind: 'auth', dedupeMs: 60_000, detail: [label, channelName].filter(Boolean).join(': '),
+      action: bot ? 'Reconnected the OmniChat Bot' : created ? 'Created account' : fresh ? 'Signed in' : 'Connected platform',
+    });
+    await markSeen(req, uid);
     if (!bot) setCookies(res, [lastLoginCookie(req, await getUser(uid), provider)]);
     // The OmniChat Bot account just signed in â†’ straight on to the chat-post permission (automatic setup).
     if (needsBotScope) return res.redirect('/auth/youtube?sharedbot=1');
@@ -85,7 +95,8 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
     if (needsConsent) return res.redirect('/auth/youtube?consent=1');
     res.redirect(bot ? '/#eggs' : linked ? '/#connections' : '/');
   } catch (e) {
-    if (user) await log(user.id, 'error', 'auth', `${provider} login failed: ${e.message}`);
+    if (user) await addLogs(user.id, [{ level: 'error', source: 'auth', message: `${provider} login failed: ${e.message}`, noIssue: true }]);
+    await issue(req, { uid: user?.id, level: 'warn', kind: 'login', message: `${provider} login failed: ${e.message}`, dedupeMs: 60_000 });
     setCookies(res, [clearStateCookie(req)]);
     res.redirect(`${user ? '/?error=' : '/login?error='}${encodeURIComponent(e.message)}${user ? '#connections' : ''}`);
   }
@@ -93,7 +104,9 @@ app.get('/auth/:provider(youtube|kick)/callback', limit('auth', 30, 60_000), ah(
 
 app.post('/auth/logout', ah(async (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
+  const user = await currentUser(req);
   setCookies(res, [await destroySession(req)]);
+  if (user) await record(req, { uid: user.id, kind: 'auth', action: 'Signed out' });
   res.json({ ok: true });
 }));
 app.post('/auth/logout-all', ah(async (req, res) => {
@@ -102,6 +115,7 @@ app.post('/auth/logout-all', ah(async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Not logged in' });
   setCookies(res, [await destroyAllSessions(user.id, req)]);
   await log(user.id, 'info', 'auth', 'Signed out from all devices');
+  await record(req, { uid: user.id, kind: 'auth', action: 'Signed out from all devices' });
   res.json({ ok: true });
 }));
 
@@ -165,7 +179,7 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
     if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
     return res.json(out);
   }
-  const live = await tick(user);
+  const [live] = await Promise.all([tick(user), markOverlay(user.id)]);
   if (w.type === 'donate') {
     const out = { donate: publicDonate(user), v: w.updatedAt };
     if (Number(req.query.v) !== w.updatedAt) out.settings = w.settings || {};
@@ -182,7 +196,7 @@ app.get(`/api/w/${ID}/poll`, limit('poll', 240, 60_000), ah(async (req, res) => 
 }));
 
 // Public (login page): which providers work + the last login on THIS browser for "Continue as …".
-const providersOut = (req) => ({ ...providersConfigured(), last: readLastLogin(req) });
+const providersOut = (req) => ({ ...providersConfigured(), last: readLastLogin(req), supportEmail: config.support.email || null });
 app.get('/api/providers', (req, res) => res.json(providersOut(req)));
 // Deploy check: which storage is active (no secrets). On Vercel it must say "kv".
 app.get('/api/health', (_req, res) => { let store; try { store = storeMode(); } catch { store = 'error'; } res.json({ ok: store !== 'missing', store, appUrl: config.appUrl }); });
@@ -239,19 +253,30 @@ const authed = ah(async (req, res, next) => {
   if (req.method !== 'GET' && !sameOrigin(req)) return res.status(403).json({ error: 'Bad origin' });
   req.user = user;
   try { const c = await renewSession(req); if (c) setCookies(res, [c]); } catch { /* renewal is best effort */ }
+  await markSeen(req, user.id);
   next();
 });
 const api = express.Router();
 api.get('/providers', (req, res) => res.json(providersOut(req))); // public (login page)
 api.use(authed);
 api.use((req, res, next) => (req.method === 'GET' ? next() : limit('write', 120, 60_000)(req, res, next)));
+api.use(auditWrites); // every write → audit trail
+api.use('/admin', admin); // OmniChat Bot account only
+
+// The dashboard reports which page is open, and its own JavaScript errors (both show up in the admin panel).
+api.post('/activity', limit('activity', 60, 60_000), ah(async (req, res) => {
+  const b = req.body || {};
+  if (b.type === 'error') await issue(req, { uid: req.user.id, kind: 'browser', message: String(b.message || 'Unknown error').slice(0, 500), where: String(b.where || '').slice(0, 300) });
+  else await recordPage(req, req.user.id, String(b.page || ''));
+  res.json({ ok: true });
+}));
 
 api.get('/me', ah(async (req, res) => {
   await ensureDefaultWidgets(req.user.id);
   const u = await getUser(req.user.id);
   const widgets = (await Promise.all((u.widgets || []).map((id) => db.get(`widget/${id}`)))).filter(Boolean).map(widgetOut);
   res.json({
-    user: { id: u.id, name: u.name, avatar: u.avatar, createdAt: u.createdAt, historyDays: u.historyDays ?? 7, sessions: sessionCount(u) },
+    user: { id: u.id, name: u.name, avatar: u.avatar, createdAt: u.createdAt, historyDays: u.historyDays ?? 7, sessions: sessionCount(u), isAdmin: isBotAccount(u) },
     accounts: Object.values(u.accounts || {}).map(publicAccount), widgets, providers: providersConfigured(), appUrl: config.appUrl,
   });
 }));
@@ -279,7 +304,11 @@ api.put('/me/settings', ah(async (req, res) => {
 api.delete('/me', ah(async (req, res) => {
   if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
   setCookies(res, [await destroySession(req), clearLastLogin(req)]);
+  req.noAudit = true;
+  await forgetTickets(req.user.id).catch((e) => console.error('[support] forget', e.message)); // never blocks the deletion (tickets expire anyway)
   await deleteUser(req.user.id);
+  await forgetUser(req.user.id).catch((e) => console.error('[audit] forget', e.message)); // the account itself is already gone
+  await record(null, { kind: 'account', action: 'An account was deleted by its owner' }); // no name, no IP
   console.log(`[auth] user ${req.user.id} deleted their account`);
   res.json({ ok: true });
 }));
@@ -342,6 +371,7 @@ api.post('/widgets', ah(async (req, res) => {
 const ownWidget = async (req, res) => {
   const w = await db.get(`widget/${req.params.id}`);
   if (!w || w.uid !== req.user.id) { res.status(404).json({ error: 'Widget not found' }); return null; }
+  req.auditDetail = `${w.type}: ${w.name}`;
   return w;
 };
 api.post(`/widgets/${ID}/rotate`, ah(async (req, res) => {
@@ -418,7 +448,9 @@ api.put('/eggs/settings', ah(async (req, res) => {
   delete next.channelId;
   await updateUser(req.user.id, (u) => ({ ...u, egg: next }));
   const changes = Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(cur[k]));
-  if (changes.length) await log(req.user.id, 'info', 'eggs', `Egg Bot: ${changes.map((k) => `${k}=${Array.isArray(next[k]) ? next[k].join('/') || 'all' : next[k] ? 'ON' : 'OFF'}`).join(', ')}`);
+  const changed = changes.map((k) => `${k}=${Array.isArray(next[k]) ? next[k].join('/') || 'all' : next[k] ? 'ON' : 'OFF'}`).join(', ');
+  req.auditDetail = changed || undefined;
+  if (changed) await log(req.user.id, 'info', 'eggs', `Egg Bot: ${changed}`);
   res.json({ ok: true, settings: next });
 }));
 
@@ -437,7 +469,7 @@ api.post('/eggs/test', ah(async (req, res) => {
   const [live, feed, sharedBot, kickBot] = await Promise.all([db.get(`live/${req.user.id}`), readFeed(), getSystemBot(), getSystemKickBot()]);
   const yt = live?.youtube || {};
   const es = eggSettings(req.user);
-  const text = feed.items[0] ? formatEgg(feed.items[0]) : 'Ã°Å¸Â¥Å¡ OmniChat Egg Bot is connected!';
+  const text = feed.items[0] ? formatEgg(feed.items[0]) : '🥚 OmniChat Egg Bot is connected!';
   const result = {};
   if (es.youtube === false) result.youtube = 'disabled';
   else if (!req.user.accounts?.youtube) result.youtube = 'not connected';
@@ -451,7 +483,7 @@ api.post('/eggs/test', ah(async (req, res) => {
     if (!kickAcc?.channelId) result.kick = 'not connected';
     else { try { await postKickChat(kickAcc.channelId, text); result.kick = 'sent'; } catch (e) { result.kick = e.message; } }
   } else result.kick = 'connect the OmniChat Kick bot account (chat:write)';
-  await log(req.user.id, 'info', 'eggs', `Test message â†’ YouTube: ${result.youtube} Â· Kick: ${result.kick}`);
+  await log(req.user.id, 'info', 'eggs', `Test message → YouTube: ${result.youtube} · Kick: ${result.kick}`);
   res.json({ ok: true, text, result });
 }));
 
@@ -513,6 +545,23 @@ api.get('/tools/summary', ah(async (req, res) => {
   res.json({ ...s, historyOff: (req.user.historyDays ?? 7) === 0 });
 }));
 
+// ── Help & support: message + screenshots → ticket (admin panel) + e-mail ──
+api.get('/support', ah(async (req, res) => {
+  const mine = await listTickets((x) => x.uid === req.user.id, 10);
+  res.json({
+    email: config.support.email || null, mail: mailReady(), categories: CATEGORIES,
+    tickets: mine.map((t) => ({ id: t.id, ts: t.ts, category: t.category, message: t.message.slice(0, 160), status: t.status, shots: (t.shots || []).length })),
+  });
+}));
+api.post('/support/shot', limit('shot', 20, 3_600_000), express.raw({ type: () => true, limit: SHOT_BYTES + 1024 }), ah(async (req, res) => {
+  req.noAudit = true;
+  res.json(await saveShot(req.user.id, req.body));
+}));
+api.post('/support', ah(async (req, res) => {
+  const t = await createTicket(req, req.user, req.body || {});
+  res.json({ ok: true, id: t.id, mailed: t.mail === 'sent' });
+}));
+
 api.get('/logs', ah(async (req, res) => {
   const r = await readLogs(req.user.id, { level: req.query.level, q: String(req.query.q || '').trim().slice(0, 100), limit: Math.min(500, Number(req.query.limit) || 200) });
   res.json(r.rows);
@@ -527,11 +576,20 @@ app.use(['/api', '/auth', '/webhooks'], (_req, res) => res.status(404).json({ er
 
 // Errors â†’ JSON (no stack traces to clients).
 // eslint-disable-next-line no-unused-vars
-app.use((err, _req, res, _next) => {
+app.use(async (err, req, res, _next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Body too large' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
-  if (!err.status || err.status >= 500) console.error(err);
-  res.status(err.status || 500).json({ error: err.status ? err.message : 'Server error' });
+  if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
+  console.error(err);
+  // The user sees a short reference; the admin panel (Issues) shows the details for it.
+  const ref = randomId(6);
+  const stack = String(err.stack || '').split('\n').slice(1, 4).map((l) => l.trim().replace(/\(?(?:file:\/\/)?\/\S*\/(?=(?:server|api|public|node_modules)\/)/, '(')).join(' < ');
+  const uid = req.user?.id || req._user?.id;
+  const path = req.originalUrl.split('?')[0].replace(/\/(w|widgets|media|donate)\/[\w-]{6,40}/, '/$1/:id'); // widget ids are secrets
+  // Public pages (overlays, donation page) are opened by viewers: their IP is never recorded.
+  await issue(uid ? req : null, { uid, kind: 'server', message: err.message, where: `${req.method} ${path} ${stack}`, ref, dedupeMs: 60_000 });
+  if (res.headersSent) return res.end();
+  res.status(err.status || 500).json({ error: err.status ? err.message : `Server error (ref ${ref})` });
 });
 
 export default app;

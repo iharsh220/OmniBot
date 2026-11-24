@@ -854,7 +854,6 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 
 /* ── Sidebar item ── */
 .nav-item.creator-nav-item { white-space: nowrap; }
-.creator-nav-emoji { width: 18px; flex: 0 0 18px; display: inline-grid; place-items: center; font-size: 15px; line-height: 1; }
 .nav-item .count.creator-badge {
   background: var(--chai-soft); color: var(--chai); border: 1px solid var(--chai-line);
   font-size: 10.5px; padding: 1px 7px; white-space: nowrap; flex-shrink: 0;
@@ -868,7 +867,6 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 .btn.creator-top-btn:hover, .btn.creator-banner-btn:hover {
   background: color-mix(in srgb, var(--chai-strong) 18%, var(--surface)); border-color: var(--chai-strong);
 }
-.creator-btn-emoji { font-size: 14px; line-height: 1; }
 .btn.creator-hero-btn svg.i { color: var(--chai-strong); }
 
 /* ── Overview card ── */
@@ -888,7 +886,6 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
   background: linear-gradient(135deg, #1e1b4b, #4c1d95); border: 2px solid var(--chai-strong);
   box-shadow: 0 6px 16px var(--chai-soft); display: grid; place-items: center; font-size: 28px; line-height: 1;
 }
-.spotlight-sparkle { position: absolute; right: -6px; bottom: -6px; font-size: 13px; line-height: 1; }
 .creator-spotlight-info { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .creator-spotlight-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .creator-spotlight-title { margin: 0 4px 0 0; font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; }
@@ -900,7 +897,7 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
   background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 8px 20px rgba(217, 119, 6, .28);
 }
 .btn.creator-chai-btn:hover { background: linear-gradient(135deg, #f59e0b, #d97706); filter: brightness(1.06); box-shadow: 0 10px 24px rgba(217, 119, 6, .38); }
-.btn-chai-icon { font-size: 20px; line-height: 1; }
+.btn.creator-chai-btn svg.i { width: 20px; height: 20px; }
 .btn-chai-txt { display: flex; flex-direction: column; text-align: left; line-height: 1.2; }
 .btn-chai-txt b { font-size: 13.5px; }
 .btn-chai-txt .tiny { font-size: 11px; font-weight: 500; opacity: .9; }
@@ -998,7 +995,8 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
   font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
   padding: 2px 7px; border-radius: 99px; background: var(--chai-strong); color: #1a1205;
 }
-.creator-tier-icon { font-size: 20px; line-height: 1.2; }
+.creator-tier-icon { display: grid; color: var(--chai-strong); margin-bottom: 4px; }
+.creator-tier-icon svg.i { width: 22px; height: 22px; }
 .creator-tier-amt { font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
 .creator-tier-title { font-size: 11px; color: var(--muted); font-weight: 500; }
 
@@ -1048,7 +1046,7 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 }
 @media (max-width: 640px) {
   /* topbar: icon-only Support / What's new so nothing overflows on phones */
-  .btn.creator-top-btn > span:not(.creator-btn-emoji) { display: none; }
+  .btn.creator-top-btn > .lbl { display: none; }
   .btn.whats-new-btn { font-size: 0; gap: 0; width: 30px; padding: 0; }
   .btn.creator-top-btn { width: 30px; padding: 0; }
 }
@@ -1064,3 +1062,13 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
   .creator-modal-footer { padding: 12px 16px; }
   .creator-modal-footer .btn { width: 100%; }
 }
+
+/* SVG icons + the YouTube logo in the creator blocks */
+.creator-spotlight-avatar img, .creator-avatar-wolf img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 13px; }
+.creator-coffee-icon-box, .creator-sub-coffee-icon { color: var(--chai-strong); }
+.creator-coffee-icon-box svg.i, .creator-sub-coffee-icon svg.i { width: 20px; height: 20px; }
+.creator-nav-item > svg.i { stroke: var(--chai-strong); }
+.creator-avatar-badge svg.i { width: 11px; height: 11px; stroke-width: 3.5; }
+.creator-spotlight-title svg.i { width: 15px; height: 15px; vertical-align: -2px; color: #e11d48; fill: #e11d48; }
+.creator-shukriya-note svg.i { width: 13px; height: 13px; vertical-align: -2px; color: #e11d48; fill: #e11d48; }
+.egg-details svg.i { width: 13px; height: 13px; vertical-align: -2px; margin-right: 5px; color: var(--muted); }

@@ -218,7 +218,7 @@ export async function handleCallback(provider, req) {
   let st = null;
   try { st = JSON.parse(decrypt(readCookie(req, STATE)) || 'null'); } catch { st = null; }
   if (!st || st.provider !== provider || st.exp < Date.now() || !safeEqual(st.state, req.query.state)) {
-    throw new Error('Login expired or invalid â please try again.');
+    throw new Error('Login expired or invalid — please try again.');
   }
   if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
   const code = req.query.code;
@@ -238,7 +238,7 @@ export async function handleCallback(provider, req) {
     await log(st.linkUid, 'info', 'eggs', `YouTube bot account connected: ${profile.channelName}`);
     return { uid: st.linkUid, linked: true, bot: true };
   }
-  const { uid, hasRefresh } = await saveAccount(provider, profile, st.linkUid);
+  const { uid, hasRefresh, created } = await saveAccount(provider, profile, st.linkUid);
   await ensureDefaultWidgets(uid);
   await log(uid, 'info', 'auth', `${provider === 'youtube' ? 'YouTube' : 'Kick'} connected: ${profile.channelName}`);
   // The OmniChat Bot account signing in ? make it the bot automatically (needs the chat-post scope).
@@ -255,18 +255,19 @@ export async function handleCallback(provider, req) {
       await saveSystemKickBot(kickBotRecord(profile));
       await log(uid, 'info', 'eggs', `Shared OmniChat Kick Bot connected: ${profile.channelName}`);
     } else {
-      await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write  reconnect Kick to grant it');
+      await log(uid, 'warn', 'eggs', 'OmniChat Kick Bot connected but missing chat:write — reconnect Kick to grant it');
     }
   }
   // YouTube without any refresh token (first login with the one-click prompt): ask for consent once.
   const needsConsent = provider === 'youtube' && !hasRefresh;
-  return { uid, linked: !!st.linkUid && !st.consent, needsBotScope, needsConsent };
+  return { uid, linked: !!st.linkUid && !st.consent, needsBotScope, needsConsent, created, channelName: profile.channelName };
 }
 
 async function saveAccount(provider, p, linkUid) {
   const linkKey = `link/${provider}/${p.providerUserId}`;
   const existing = await db.get(linkKey);
   let uid;
+  let created = false;
   if (linkUid) {
     if (existing && existing.uid !== linkUid && (await getUser(existing.uid))) {
       throw new Error(`This ${provider === 'youtube' ? 'YouTube channel' : 'Kick account'} is already linked to another OmniChat login. Sign in with it instead, or disconnect it there first.`);
@@ -278,6 +279,7 @@ async function saveAccount(provider, p, linkUid) {
     const u = blankUser(p.channelName, p.avatar);
     await db.set(`user/${u.id}`, u);
     uid = u.id;
+    created = true;
   }
   let oldLink = null;
   let hasRefresh = false;
@@ -298,7 +300,7 @@ async function saveAccount(provider, p, linkUid) {
   });
   if (oldLink) await db.del(oldLink);
   await db.set(linkKey, { uid });
-  return { uid, hasRefresh };
+  return { uid, hasRefresh, created };
 }
 
 // ââ OmniChat Bot (one YouTube bot account used for every streamer) ââ
@@ -331,7 +333,7 @@ export async function getSystemBotToken() {
   try {
     t = await postForm('https://oauth2.googleapis.com/token', { client_id: config.google.clientId, client_secret: config.google.clientSecret, refresh_token: refresh, grant_type: 'refresh_token' });
   } catch (e) {
-    throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) â admin must reconnect it`);
+    throw new Error(`Shared OmniChat Bot token refresh failed (${e.message}) — admin must reconnect it`);
   }
   await db.update('system/ytbot', (b) => {
     if (!b) return undefined;
@@ -434,7 +436,7 @@ const PROVIDER_NAME = { youtube: 'YouTube', kick: 'Kick' };
 export async function getAccessToken(uid, provider, { bot = false } = {}) {
   const pick = (u) => (bot ? u?.ytBot : u?.accounts?.[provider]);
   const label = bot ? 'YouTube bot' : PROVIDER_NAME[provider] || provider;
-  const reconnectError = (why) => Object.assign(new Error(`${label} login expired${why ? ` (${why})` : ''} â please reconnect ${label}`), { reconnect: true });
+  const reconnectError = (why) => Object.assign(new Error(`${label} login expired${why ? ` (${why})` : ''} — please reconnect ${label}`), { reconnect: true });
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const acc = pick(await getUser(uid));
@@ -534,7 +536,7 @@ export async function deleteUser(uid) {
     ...Object.values(u.accounts || {}).map((a) => `link/${a.provider}/${a.providerUserId}`),
     ...(u.sessions || []).map((s) => `session/${s.hash}`),
     ...(u.widgets || []).map((id) => `widget/${id}`),
-    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `poll/${uid}`, `cmds/${uid}`, `alertcount/${uid}`, `donations/${uid}`, `user/${uid}`,
+    `live/${uid}`, `events/${uid}`, `logs/${uid}`, `history/${uid}`, `eggs/${uid}`, `poll/${uid}`, `cmds/${uid}`, `alertcount/${uid}`, `donations/${uid}`, `audit/${uid}`, `pages/${uid}`, `seen/${uid}`, `user/${uid}`,
   ];
   // uploaded alert pictures / sounds (meta + chunks)
   for (const id of u.media || []) {

@@ -1,5 +1,6 @@
 // Per-user ring buffers: live events (chat/delete), system logs and chat history.
 import * as db from './store.js';
+import { issue } from './audit.js';
 
 const DAY = 86_400_000;
 const EVENTS_MAX = 150;
@@ -10,6 +11,12 @@ const HISTORY_MAX = 2000;
 export async function addLogs(uid, entries) {
   if (!uid || !entries.length) return;
   for (const e of entries) (e.level === 'error' ? console.error : console.log)(`[${e.source} ${uid}] ${e.message}`);
+  // Errors (and failed chat posts) also reach the admin panel → Issues.
+  for (const e of entries) {
+    if (!e.noIssue && (e.level === 'error' || (e.level === 'warn' && /failed|missing/i.test(e.message)))) {
+      await issue(null, { uid, level: e.level, kind: e.source, message: e.message, dedupeMs: 60 * 60_000 });
+    }
+  }
   const now = Date.now();
   await db.update(`logs/${uid}`, (L) => {
     for (const e of entries) {

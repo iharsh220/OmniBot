@@ -14,7 +14,7 @@
 </head>
 <body>
   <h1>OmniChat Privacy Policy</h1>
-  <p class="last-updated">Last updated: November 2024</p>
+  <p class="last-updated">Last updated: 24 November 2026</p>
 
   <h2>What data we access</h2>
   <p>OmniChat connects to your <strong>YouTube</strong> and/or <strong>Kick</strong> accounts via OAuth to read:</p>
@@ -31,6 +31,19 @@
     <li>Never share, sell, or use your data for advertising</li>
   </ul>
 
+  <h2>Security and activity log</h2>
+  <p>To keep accounts safe, find problems and help streamers who ask for support, OmniChat records:</p>
+  <ul>
+    <li>Sign-ins, sign-outs and failed sign-ins, with date and time</li>
+    <li>What you do in the dashboard (for example: widget edited, Egg Bot turned on, page opened)</li>
+    <li>Your IP address, approximate location derived from it (city, region, country) and browser / device type</li>
+    <li>Errors that happen while you use OmniChat</li>
+  </ul>
+  <p>Only the OmniChat administrator can see this log, together with your channel names, connection and live status, widget names and system logs. It does not contain passwords, OAuth tokens, chat messages or payment details. Entries are kept for <strong>90 days</strong> and removed when you delete your account. IP addresses and devices of your viewers (overlays, donation page) are not recorded; system logs can contain the name of a viewer who used a bot command.</p>
+
+  <h2>Help and support</h2>
+  <p>When you use <strong>Help &amp; support</strong>, your message, the e-mail address you enter (optional), your screenshots, and your IP address, approximate location and device are saved for the OmniChat administrator and the message with screenshots is sent to the OmniChat support mailbox. Please hide private details in screenshots. Saved requests are deleted after 90 days or when you delete your account; e-mails already in the support mailbox can be removed on request.</p>
+
   <h2>Data storage</h2>
   <p>Data is stored in <strong>Upstash Redis</strong> (connected through Vercel). OAuth tokens are encrypted (AES-256-GCM) before they are stored. You can delete your account anytime from the dashboard, which permanently removes all your data.</p>
 
@@ -39,9 +52,10 @@
     <li><strong>Google/YouTube APIs</strong> — for chat and channel data</li>
     <li><strong>Kick API</strong> — for chat and channel data</li>
     <li><strong>Vercel</strong> — hosting and serverless functions</li>
+    <li><strong>E-mail provider (Gmail)</strong> — delivers support requests to our mailbox</li>
     <li><strong>Upstash</strong> — data storage (Redis)</li>
   </ul>
-  <p>We do not use analytics, tracking, or third-party scripts.</p>
+  <p>We do not use third-party analytics, advertising trackers or third-party scripts. OmniChat's own activity log is described above.</p>
 
   <h2>Your rights</h2>
   <p>You can revoke access anytime:</p>
@@ -52,6 +66,7 @@
   </ul>
 
   <h2>Contact</h2>
-  <p>Questions? Email: <a href="mailto:your-email@example.com">your-email@example.com</a></p>
+  <p>Questions? Email: <a data-support-email>use Help &amp; support in the dashboard</a></p>
+  <script src="/js/legal.js"></script>
 </body>
 </html>

@@ -2,6 +2,8 @@ import { DEFAULTS, THEMES, FONTS, applyRoot, normalizeSettings, ALERT_KINDS, WID
 import { ChatView, StatsView, EggsView, createMessageEl, ICONS } from './render.js';
 import { connectLive, startDemo, startEggDemo } from './feed.js';
 import { icon, hydrateIcons, bindThemeSwitch } from './icons.js';
+import { createAdmin, ADMIN_PAGES } from './admin.js';
+import { createSupport } from './support.js';
 import { AlertsView, GoalView, PollView, DonateView, startAlertDemo, demoPoll, demoGoalState, demoDonate, playAlertSound, synth } from './live-views.js';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -114,7 +116,13 @@ const PAGES = {
   eggs: ['Egg Bot', 'Post Steal an Egg spawns from your Discord into YouTube & Kick chat'],
   logs: ['Logs', 'What OmniChat is doing, and your chat history'],
   settings: ['Settings', 'Appearance, privacy and security'],
+  support: ['Help & support', 'Tell us what went wrong — add a screenshot and we will help'],
+  ...ADMIN_PAGES,
 };
+// The OmniChat Bot account gets the admin panel instead of the streamer pages (it never streams).
+const STREAMER_ONLY = ['overview', 'studio', 'tools', 'donations', 'support'];
+let admin = null;
+const support = createSupport({ $, h, ic, api, toast, ago, fmtTime, getPage: () => page });
 
 // ═════════════════════════════════════════════════════════════════════
 //  Studio — control schema
@@ -890,19 +898,18 @@ function renderOverview() {
     h('div', { class: 'creator-spotlight-glow' }),
     h('div', { class: 'creator-spotlight-content' },
       h('div', { class: 'creator-spotlight-avatar' },
-        h('span', { class: 'spotlight-wolf' }, '🐺'),
-        h('span', { class: 'spotlight-sparkle' }, '✨')
+        h('img', { src: '/smartwolf.jpg', alt: 'SmartWolf', width: 56, height: 56 })
       ),
       h('div', { class: 'creator-spotlight-info' },
         h('div', { class: 'creator-spotlight-title-row' },
-          h('h3', { class: 'creator-spotlight-title' }, 'Developed with ❤️ by SmartWolf'),
+          h('h3', { class: 'creator-spotlight-title' }, 'Developed with ', ic('heart'), ' by SmartWolf'),
           h('span', { class: 'tag ok' }, '100% Free Forever'),
           h('span', { class: 'tag purple' }, '0% Platform Fee')
         ),
         h('p', { class: 'creator-spotlight-desc' },
-          'OmniChat is completely free for all streamers with no ads, no subscriptions, and zero cuts from your earnings. Enjoying the tool? Consider buying SmartWolf a cup of chai or coffee! ☕'),
+          'OmniChat is completely free for all streamers with no ads, no subscriptions, and zero cuts from your earnings. Enjoying the tool? Consider buying SmartWolf a cup of chai or coffee!'),
         h('div', { class: 'creator-spotlight-links' },
-          h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
+          h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf', target: '_blank', rel: 'noopener' },
             ic('youtube'), h('b', {}, 'YouTube'), h('span', { class: 'cs-count' }, '27K Subs')),
           h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
             ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
@@ -914,7 +921,7 @@ function renderOverview() {
       ),
       h('div', { class: 'creator-spotlight-cta' },
         h('button', { class: 'btn creator-chai-btn', type: 'button', onclick: showCreatorModal },
-          h('span', { class: 'btn-chai-icon' }, '☕'),
+          ic('coffee'),
           h('div', { class: 'btn-chai-txt' },
             h('b', {}, 'Buy a Coffee / Chai'),
             h('span', { class: 'tiny' }, 'Support Developer')
@@ -1291,7 +1298,8 @@ function renderSettings() {
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('database'), h('h3', {}, 'Privacy & data')),
       row('Chat history', 'How long chat messages are kept for search and export. Older ones are deleted automatically.', retention),
       row('Clear chat history', 'Delete every saved chat message now.', h('button', { class: 'btn danger', onclick: clearChat }, ic('trash'), 'Clear history')),
-      row('System logs', 'Kept for 14 days, then deleted automatically.', h('a', { class: 'btn', href: '#logs' }, 'View logs'))),
+      row('System logs', 'Kept for 14 days, then deleted automatically.', h('a', { class: 'btn', href: '#logs' }, 'View logs')),
+      row('Security log', 'Sign-ins, your actions, IP address, approximate location and device are recorded for support and security, and kept 90 days. Only the OmniChat admin can see them.', h('a', { class: 'btn', href: '/privacy.html', target: '_blank', rel: 'noopener' }, 'Privacy policy'))),
 
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('shield'), h('h3', {}, 'Security')),
       row('Active sessions', `You're signed in on ${me.user.sessions} device${me.user.sessions === 1 ? '' : 's'}. Sessions expire after 30 days.`,
@@ -1388,7 +1396,7 @@ async function renderEggs() {
       h('b', {}, `Add ${!yc ? 'YouTube' : 'Kick'}`),
       h('span', {}, `Connect ${!yc ? 'YouTube' : 'Kick'} to use the Egg Bot there too.`)),
       h('a', { class: 'btn sm', href: '#connections' }, 'Connect')) : null,
-    row('Game events', 'Also post events like 🌊 Tidal Surge, 🦋 Butterfly Bloom and 🕶️ Slick Rick when they happen.', toggle(s.events !== false, (v) => save({ events: v }, v ? 'Events ON' : 'Events OFF'))),
+    row('Game events', 'Also post events like Tidal Surge, Butterfly Bloom and Slick Rick when they happen.', toggle(s.events !== false, (v) => save({ events: v }, v ? 'Events ON' : 'Events OFF'))),
     row('!egghistory command', 'Viewers type !egghistory to see the last 10 eggs · 30 s cooldown.', toggle(s.commandEnabled, (v) => save({ commandEnabled: v }))),
     h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
       h('div', { class: 'txt' }, h('b', {}, 'Which eggs to post'), h('span', {}, 'Pick rarities to announce, or all eggs.')), chips),
@@ -1412,6 +1420,9 @@ async function renderEggs() {
       h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, 'YouTube posting'),
         h('span', {}, st.youtubeBotReady ? `Active as ${st.youtubeBot.channelName}. It refreshes every time this account signs in.` : 'Not active yet — click Reconnect.')),
         h('a', { class: 'btn sm primary', href: '/auth/youtube?sharedbot=1' }, 'Reconnect')),
+      h('div', { class: 'srow' }, h('div', { class: 'txt' }, h('b', {}, 'Kick posting'),
+        h('span', {}, st.kickChatReady ? `Active as ${st.kickBot?.channelName || 'the Kick bot'}.` : 'Not active yet — click Reconnect.')),
+        h('a', { class: 'btn sm primary', href: '/auth/kick?chat=1' }, 'Reconnect')),
       h('div', { class: 'srow', style: 'flex-direction:column;align-items:stretch;gap:8px' },
         h('div', { class: 'txt' }, h('b', {}, 'Discord egg channel'), h('span', {}, st.discordConfigured ? 'Every streamer’s Egg Bot reads this channel.' : 'DISCORD_BOT_TOKEN is missing on the server.')),
         h('div', { class: 'wpick' }, chInput, h('button', { class: 'btn', type: 'button', onclick: async () => {
@@ -1429,7 +1440,7 @@ async function renderEggs() {
         h('tbody', {}, items.map((e) => h('tr', {},
           h('td', { class: 'when', title: fmtTime(e.ts) }, h('b', {}, ago(e.ts)), new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
           h('td', {}, h('b', { class: 'who', style: 'display:block' }, e.name), rarityTag(e.rarity)),
-          h('td', { class: 'egg-details' }, e.location ? h('span', {}, `📍 ${e.location}`) : null, e.money ? h('span', {}, `💰 ${e.money}`) : null, e.speed ? h('span', {}, `⚡ ${e.speed}`) : null))))))
+          h('td', { class: 'egg-details' }, e.location ? h('span', {}, ic('pin'), e.location) : null, e.money ? h('span', {}, ic('coin'), e.money) : null, e.speed ? h('span', {}, ic('zap'), e.speed) : null))))))
       : h('div', { class: 'empty' }, ic('egg'), h('b', {}, 'No eggs yet'), 'Turn the Egg Bot ON — new spawns show up here within seconds.'));
 
   // ── recent game events (same Discord feed) ──
@@ -1442,12 +1453,12 @@ async function renderEggs() {
           h('td', { class: 'when', title: fmtTime(ev.ts) }, h('b', {}, ago(ev.ts)), new Date(ev.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })),
           h('td', {}, h('b', { class: 'who', style: 'display:block' }, `${ev.emoji || '✨'} ${ev.name}`),
             ev.endsAt && ev.endsAt > Date.now() ? h('span', { class: 'tag ok' }, 'ACTIVE') : null),
-          h('td', { class: 'egg-details' }, ev.where ? h('span', {}, `📍 ${ev.where}`) : null, ev.section ? h('span', {}, `${ev.section.title}: ${ev.section.lines.slice(0, 3).join(' · ')}`) : null))))))
+          h('td', { class: 'egg-details' }, ev.where ? h('span', {}, ic('pin'), ev.where) : null, ev.section ? h('span', {}, `${ev.section.title}: ${ev.section.lines.slice(0, 3).join(' · ')}`) : null))))))
       : h('div', { class: 'empty' }, ic('zap'), h('b', {}, 'No events yet'), 'New events from the Discord channel show up here.'));
 
   root.replaceChildren(h('div', { class: 'grid two' },
-    h('div', { class: 'grid', style: 'align-content:start' }, botCard, settingsCard),
-    h('div', { class: 'grid', style: 'align-content:start' }, checklist, evCard, history)));
+    h('div', { class: 'grid', style: 'align-content:start' }, botCard, st.isBot ? history : settingsCard),
+    h('div', { class: 'grid', style: 'align-content:start' }, st.isBot ? null : checklist, evCard, st.isBot ? null : history)));
 }
 setInterval(() => { if (page === 'eggs' && !document.activeElement?.closest('#page-eggs input')) renderEggs(); }, 10_000);
 
@@ -1459,7 +1470,7 @@ const WHATS_NEW_ITEMS = [
     badge: 'COMMUNITY',
     color: 'warn',
     icon: 'coffee',
-    title: 'Support the Creator (SmartWolf 🐺)',
+    title: 'Support the Creator (SmartWolf)',
     desc: 'OmniChat is 100% free with no ads, no subscriptions, and 0% platform cuts. If OmniChat empowers your stream, you can support the developer (SmartWolf) with a cup of chai or coffee via UPI!'
   },
   {
@@ -1547,7 +1558,7 @@ function showWhatsNewModal() {
           h('span', { class: 'wn-title-icon' }, ic('sparkles')),
           h('div', {}, h('h3', { style: 'margin:0;font-size:18px' }, "What's new in OmniChat"), h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Latest updates & features (November 2026)'))
         ),
-        h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Close', onclick: close }, '✕')
+        h('button', { type: 'button', class: 'btn sm ghost icon', title: 'Close', 'aria-label': 'Close', onclick: close }, ic('x'))
       ),
       list,
       h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:16px' },
@@ -1594,10 +1605,10 @@ function showCreatorModal() {
   }, ic('rupee'), `Pay ₹${currentAmount} with UPI App`);
 
   const amounts = [
-    { amt: 20, icon: '☕', label: '₹20', title: 'Chai', tag: '' },
-    { amt: 50, icon: '☕', label: '₹50', title: 'Hot Coffee', tag: 'Popular' },
-    { amt: 100, icon: '🍩', label: '₹100', title: 'Chai & Snacks', tag: '' },
-    { amt: 250, icon: '🐺', label: '₹250', title: 'Wolf Pack', tag: 'VIP' },
+    { amt: 20, icon: 'coffee', label: '₹20', title: 'Chai', tag: '' },
+    { amt: 50, icon: 'coffee', label: '₹50', title: 'Hot Coffee', tag: 'Popular' },
+    { amt: 100, icon: 'gift', label: '₹100', title: 'Chai & Snacks', tag: '' },
+    { amt: 250, icon: 'star', label: '₹250', title: 'Wolf Pack', tag: 'VIP' },
   ];
 
   const chipsContainer = h('div', { class: 'creator-tier-grid' });
@@ -1619,7 +1630,7 @@ function showCreatorModal() {
           }
         },
         opt.tag ? h('span', { class: 'creator-tier-tag' }, opt.tag) : null,
-        h('span', { class: 'creator-tier-icon' }, opt.icon),
+        h('span', { class: 'creator-tier-icon' }, ic(opt.icon)),
         h('b', { class: 'creator-tier-amt' }, opt.label),
         h('span', { class: 'creator-tier-title' }, opt.title)
         );
@@ -1634,7 +1645,7 @@ function showCreatorModal() {
     onclick: async () => {
       await copyText(upiId);
       copyBtn.classList.add('copied');
-      copyBtn.textContent = '✓ Copied!';
+      copyBtn.replaceChildren(ic('check'), 'Copied');
       setTimeout(() => {
         copyBtn.classList.remove('copied');
         copyBtn.replaceChildren(ic('copy'), 'Copy UPI');
@@ -1647,11 +1658,11 @@ function showCreatorModal() {
       // Top banner
       h('div', { class: 'creator-banner' },
         h('div', { class: 'creator-banner-glow' }),
-        h('button', { type: 'button', class: 'btn sm ghost icon creator-close-btn', title: 'Close', onclick: close }, '✕'),
+        h('button', { type: 'button', class: 'btn sm ghost icon creator-close-btn', title: 'Close', 'aria-label': 'Close', onclick: close }, ic('x')),
         h('div', { class: 'creator-profile-header' },
           h('div', { class: 'creator-avatar-wrap' },
-            h('div', { class: 'creator-avatar-wolf' }, '🐺'),
-            h('span', { class: 'creator-avatar-badge', title: 'Verified Creator' }, '✓')
+            h('div', { class: 'creator-avatar-wolf' }, h('img', { src: '/smartwolf.jpg', alt: 'SmartWolf', width: 56, height: 56 })),
+            h('span', { class: 'creator-avatar-badge', title: 'Creator' }, ic('check'))
           ),
           h('div', { class: 'creator-profile-meta' },
             h('div', { class: 'creator-name-row' },
@@ -1659,9 +1670,9 @@ function showCreatorModal() {
               h('span', { class: 'creator-role-tag' }, 'Owner & Developer'),
               h('span', { class: 'creator-free-pill' }, '100% Free Tool')
             ),
-            h('p', { class: 'creator-tagline' }, 'IT pro by day, Roblox streamer by passion 🐺 · Blox Fruits & Steal An Egg'),
+            h('p', { class: 'creator-tagline' }, 'IT pro by day, Roblox streamer by passion · Blox Fruits & Steal An Egg'),
             h('div', { class: 'creator-social-pills' },
-              h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf_yt', target: '_blank', rel: 'noopener' },
+              h('a', { class: 'cs-pill cs-yt', href: 'https://www.youtube.com/@smartwolf', target: '_blank', rel: 'noopener' },
                 ic('youtube'), h('b', {}, 'YouTube'), h('span', { class: 'cs-count' }, '27K Subs')),
               h('a', { class: 'cs-pill cs-insta', href: 'https://www.instagram.com/smartwolf_yt/', target: '_blank', rel: 'noopener' },
                 ic('instagram'), h('b', {}, 'Instagram'), h('span', { class: 'cs-count' }, '@smartwolf_yt')),
@@ -1677,7 +1688,7 @@ function showCreatorModal() {
       // Support with Chai / Coffee Box
       h('div', { class: 'creator-coffee-section' },
         h('div', { class: 'creator-section-head' },
-          h('div', { class: 'creator-coffee-icon-box' }, '☕'),
+          h('div', { class: 'creator-coffee-icon-box' }, ic('coffee')),
           h('div', {},
             h('h3', { class: 'creator-section-title' }, 'Buy SmartWolf a Cup of Chai or Coffee'),
             h('p', { class: 'creator-section-desc' }, 'Direct UPI · 0% platform cuts · Keeps OmniChat fast & 100% free for everyone')
@@ -1708,7 +1719,7 @@ function showCreatorModal() {
               h('span', { class: 'app-pill' }, 'Any UPI')
             ),
             h('p', { class: 'creator-shukriya-note' },
-              '❤️ Dil se shukriya! Every contribution directly supports cloud server bills and continuous feature updates.')
+              ic('heart'), ' Dil se shukriya! Every contribution directly supports cloud server bills and continuous feature updates.')
           )
         )
       ),
@@ -1737,7 +1748,10 @@ function showPage(p) {
     showCreatorModal();
     return;
   }
-  prevPage = PAGES[p] ? p : 'overview';
+  const [id, arg] = String(p).split('/');
+  const home = me.user.isAdmin ? 'admin' : 'overview';
+  const allowed = PAGES[id] && (me.user.isAdmin ? !STREAMER_ONLY.includes(id) : !ADMIN_PAGES[id]);
+  prevPage = allowed ? id : home;
   page = prevPage;
   for (const id of Object.keys(PAGES)) $(`#page-${id}`).hidden = id !== page;
   $$('.nav-item').forEach((a) => a.classList.toggle('on', a.dataset.page === page));
@@ -1757,8 +1771,35 @@ function showPage(p) {
     }
   }
   if (page === 'settings') renderSettings();
+  if (page === 'support') support.show();
+  if (ADMIN_PAGES[page]) admin.show(page, arg);
+  else if (!me.user.isAdmin) report({ type: 'page', page });
 }
-window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));
+window.addEventListener('hashchange', () => { if (me) showPage(location.hash.slice(1)); });
+
+/** Tell the server which page is open / that this page crashed (shown in the admin panel). Never blocks the UI. */
+function report(data) {
+  fetch('/api/activity', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).catch(() => {});
+}
+let crashes = 0;
+function reportCrash(message, where) {
+  if (!me || crashes >= 5 || !message || /ResizeObserver loop/.test(message)) return;
+  crashes += 1;
+  report({ type: 'error', message: String(message).slice(0, 400), where: `#${page} ${where || ''}`.slice(0, 280) });
+}
+window.addEventListener('error', (e) => { if (e.message) reportCrash(e.message, `${String(e.filename || '').replace(location.origin, '')}:${e.lineno}`); });
+window.addEventListener('unhandledrejection', (e) => reportCrash(e.reason?.message || e.reason, 'promise'));
+
+/** Bot account → admin menu; everyone else → streamer menu. */
+function applyRole() {
+  const role = me.user.isAdmin ? 'admin' : 'streamer';
+  $$('[data-role]').forEach((el) => { el.hidden = el.dataset.role !== role; });
+  if (!me.user.isAdmin) return;
+  admin = createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCsv, ICONS, getPage: () => page });
+  $('#brand-sub').textContent = 'Admin panel';
+  $('#nav-eggs-label').textContent = 'Bot setup';
+  PAGES.eggs = ['Bot setup', 'The shared OmniChat bots and the Steal an Egg feed'];
+}
 
 function renderUser() {
   $('#user-name').textContent = me.user.name || 'Streamer';
@@ -1906,10 +1947,10 @@ async function donateCard() {
     } }, ic('send'), 'Show alert')));
   const creatorBanner = h('div', { class: 'card creator-sub-banner' },
     h('div', { class: 'creator-sub-banner-left' },
-      h('span', { class: 'creator-sub-coffee-icon' }, '☕'),
+      h('span', { class: 'creator-sub-coffee-icon' }, ic('coffee')),
       h('div', {},
         h('b', { class: 'creator-sub-title' }, 'OmniChat takes 0% cut from your donations — 100% Free Tool'),
-        h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created with ❤️ by SmartWolf. If you love this project, consider supporting the developer with a cup of tea or coffee!')
+        h('p', { class: 'muted tiny', style: 'margin:2px 0 0' }, 'Created by SmartWolf. If you love this project, consider supporting the developer with a cup of tea or coffee!')
       )
     ),
     h('button', { type: 'button', class: 'btn sm creator-banner-btn', onclick: showCreatorModal }, ic('coffee'), 'Support SmartWolf')
@@ -1963,7 +2004,7 @@ function showIncomingDonationPopup(item) {
       h('button', {
         type: 'button', class: 'btn sm ghost icon', title: 'Close', style: 'padding:2px 6px',
         onclick: () => { popup.classList.add('out'); setTimeout(() => popup.remove(), 250); }
-      }, '✕')
+      }, ic('x'))
     ),
     item.message ? h('div', { class: 'toast-donation-body' }, `“${item.message}”`) : null,
     h('div', { class: 'toast-donation-actions' },
@@ -2151,6 +2192,7 @@ async function boot() {
   me = await api('/api/me');
   widgets = me.widgets;
   renderUser();
+  applyRole();
 
   let last = null;
   try { last = localStorage.getItem('omnichat.widget'); } catch { /* ignore */ }
@@ -2181,7 +2223,7 @@ async function boot() {
     onDonations: handleDonationsUpdate,
   });
   setFeed('demo');
-  updateDonationBadge();
+  if (!me.user.isAdmin) updateDonationBadge();
   $('#open-whats-new')?.addEventListener('click', showWhatsNewModal);
   $('#open-creator')?.addEventListener('click', showCreatorModal);
   $('#nav-creator')?.addEventListener('click', (e) => { e.preventDefault(); showCreatorModal(); });
