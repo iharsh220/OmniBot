@@ -1067,7 +1067,7 @@ function renderConnections() {
     const body = h('div', { class: 'conn-body' });
     body.append(h('div', { class: 'conn-head' },
       h('div', { class: 'conn-logo', html: ICONS[p] }),
-      h('div', {}, h('b', {}, info.name), h('span', { class: 'muted tiny' }, acc ? 'Connected · read-only access' : 'Not connected')),
+      h('div', {}, h('b', {}, info.name), h('span', { class: 'muted tiny' }, acc ? (p === 'youtube' ? 'Connected · read-only access' : 'Connected') : 'Not connected')),
       acc ? h('span', { class: `tag ${st.live ? 'live' : 'ok'}`, style: 'margin-left:auto' }, st.live ? '● LIVE' : 'Connected') : null));
 
     if (acc) {
@@ -1105,7 +1105,7 @@ function renderConnections() {
         st.url ? h('a', { class: 'btn sm ghost', href: st.url, target: '_blank', rel: 'noopener noreferrer' }, ic('external'), 'Channel') : null,
         h('button', { class: 'btn sm ghost danger', style: 'margin-left:auto', onclick: () => disconnect(p) }, 'Disconnect')));
     } else if (me.providers[p]) {
-      body.append(h('p', { class: 'muted', style: 'margin:0' }, `Connect ${info.name} to bring its chat and stats into your widgets. OmniChat only asks for read-only access.`));
+      body.append(h('p', { class: 'muted', style: 'margin:0' }, `Connect ${info.name} to bring its chat and stats into your widgets. ${p === 'youtube' ? 'OmniChat only asks for read-only access.' : 'OmniChat never posts from your account; only its own bot writes in chat, when you switch that on.'}`));
       body.append(h('div', { class: 'conn-actions' }, h('a', { class: `btn ${p === 'youtube' ? 'yt' : 'kick'}`, href: `/auth/${p}` }, h('span', { html: ICONS[p], style: 'display:inline-flex;width:18px;height:18px' }), `Connect ${info.name}`)));
     } else {
       body.append(h('div', { class: 'notice warn' }, ic('alert'), h('div', {}, `${info.name} login isn't configured on this server. The admin must set ${info.env}.`)));
@@ -1308,7 +1308,7 @@ function renderSettings() {
       row('Active sessions', `You're signed in on ${me.user.sessions} device${me.user.sessions === 1 ? '' : 's'}. Sessions expire after 30 days.`,
         h('button', { class: 'btn', onclick: logoutAll }, ic('logout'), 'Sign out everywhere')),
       h('ul', { class: 'shield-list' },
-        ['Read-only access to YouTube and Kick — OmniChat never posts, moderates or reads stream keys.',
+        ['YouTube access is read-only. OmniChat never posts from your account, never moderates and never reads stream keys; only its own bots write in chat, when you switch that on.',
           'OAuth tokens are encrypted (AES-256-GCM) in the database; your passwords are never seen or stored.',
           'Secure, HttpOnly session cookies; sign-in is protected against CSRF and replay.',
           'Widget URLs are random and can be regenerated any time from Studio.',

@@ -475,6 +475,7 @@ export async function registerDiscord(uid, on) {
     S.uids = on ? [...(S.uids || []), uid] : S.uids.filter((x) => x !== uid);
     return S;
   }, { uids: [] });
+  if (!on) await db.update('cron/discord', (C) => { if (!C[uid]) return undefined; delete C[uid]; return C; }, {}); // nothing about this streamer stays behind
   list.at = 0;
 }
 
