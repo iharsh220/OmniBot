@@ -13,7 +13,7 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
     const i = h('input', { type: 'checkbox', 'aria-label': label });
     i.checked = checked;
     i.addEventListener('change', () => onChange(i.checked));
-    return h('span', { class: 'switch' }, i, h('span'));
+    return h('label', { class: 'switch' }, i, h('span')); // a label: the visible part must pass the click on to the (hidden) checkbox
   };
   async function save(patch, msg = 'Saved') {
     try { await api('/api/discord', { method: 'PUT', body: JSON.stringify(patch) }); toast(msg); } catch (e) { toast(e.message, 'err'); }
