@@ -134,7 +134,7 @@ export async function validateDiscord(b, user) {
   const next = { ...(user.discord || {}), ...structuredClone(cur), modes: { ...(user.discord.modes || {}) } };
   if (b.enabled !== undefined) next.enabled = !!b.enabled;
   const needsRoles = TYPES.some((t) => b.types?.[t]?.roles !== undefined);
-  const knownRoles = needsRoles ? new Set((await guildRoles(user.discord.guildId, { fresh: true })).map((r) => r.id)) : null;
+  const knownRoles = needsRoles ? new Set((await guildRoles(user.discord.guildId)).map((r) => r.id)) : null;
   for (const t of TYPES) {
     const x = b.types?.[t];
     if (!x || typeof x !== 'object') continue;

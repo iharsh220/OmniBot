@@ -9,12 +9,19 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
   const post = { text: '', url: '', image: null, preview: '', sending: false }; // the draft survives switching pages
   let openTagMenu = null; // which announcement type's tag dropdown is open
   const tagSearch = {}; // search filter per announcement type
+  const tagDraft = {}; // unsaved { ping, roles } per type while the dropdown is open
+  const closeMenu = () => {
+    if (!openTagMenu) return;
+    delete tagDraft[openTagMenu];
+    openTagMenu = null;
+    show();
+  };
   if (typeof document !== 'undefined') {
     document.addEventListener('click', (e) => {
-      if (openTagMenu && !e.target.closest?.('.dc-ms')) { openTagMenu = null; show(); }
+      if (openTagMenu && !e.target.closest?.('.dc-ms')) closeMenu();
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && openTagMenu) { openTagMenu = null; show(); }
+      if (e.key === 'Escape' && openTagMenu) closeMenu();
     });
   }
   const plat = (p) => h('span', { class: 'dc-plat', html: ICONS[p] });
@@ -88,28 +95,39 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
       Object.entries(TYPE_INFO).filter(([t]) => (t === 'kick' ? d.kick : t === 'post' || d.youtube)).map(([t, [label, icon, sub]]) => {
         const s = d.settings.types[t];
         const selRoles = Array.isArray(s.roles) ? s.roles : [];
-        const hasAny = s.ping !== 'none' || selRoles.length > 0;
-        const text = t === 'post' ? null : h('input', { class: 'input', value: s.text, maxlength: 300, placeholder: d.defaults[t], 'aria-label': `${label} message`, onchange: (e) => save({ types: { [t]: { text: e.target.value } } }) });
-        const evOn = s.ping === 'both' || s.ping === 'everyone';
-        const hrOn = s.ping === 'both' || s.ping === 'here';
         const isOpen = openTagMenu === t;
-        const allOptions = [
-          { key: 'everyone', label: '@everyone', color: null, on: evOn, toggle: () => save({ types: { [t]: { ping: pingState(s.ping, 'everyone') } } }) },
-          { key: 'here', label: '@here', color: null, on: hrOn, toggle: () => save({ types: { [t]: { ping: pingState(s.ping, 'here') } } }) },
-          ...(d.roles || []).map((r) => ({
-            key: r.id,
-            label: `@${r.name}`,
-            color: r.color,
-            on: selRoles.includes(r.id),
-            toggle: () => {
-              const nextRoles = selRoles.includes(r.id) ? selRoles.filter((id) => id !== r.id) : [...selRoles, r.id];
-              save({ types: { [t]: { roles: nextRoles } } });
-            },
-          })),
-        ];
+        const draft = isOpen ? (tagDraft[t] ||= { ping: s.ping, roles: [...selRoles] }) : { ping: s.ping, roles: selRoles };
+        const text = t === 'post' ? null : h('input', { class: 'input', value: s.text, maxlength: 300, placeholder: d.defaults[t], 'aria-label': `${label} message`, onchange: (e) => save({ types: { [t]: { text: e.target.value } } }) });
         const listEl = h('div', { class: 'dc-ms-list', role: 'listbox', 'aria-multiselectable': 'true' });
-        const renderOptions = (q) => {
-          const term = String(q || '').trim().toLowerCase();
+        const countEl = h('span', { class: 'muted tiny' });
+        const valEl = h('span', { class: 'dc-ms-val' }, h('span', { class: 'muted' }, 'Tags: '), summaryOf(draft));
+        const clearBtn = h('button', {
+          type: 'button',
+          class: 'dc-tag-clear',
+          onclick: () => { draft.ping = 'none'; draft.roles = []; renderMenu(); },
+        }, 'Clear');
+        const renderMenu = () => {
+          const evOn = draft.ping === 'both' || draft.ping === 'everyone';
+          const hrOn = draft.ping === 'both' || draft.ping === 'here';
+          const total = (evOn ? 1 : 0) + (hrOn ? 1 : 0) + draft.roles.length;
+          countEl.textContent = total ? `${total} selected` : 'None selected';
+          clearBtn.hidden = total === 0;
+          valEl.replaceChildren(h('span', { class: 'muted' }, 'Tags: '), summaryOf(draft));
+          const allOptions = [
+            { key: 'everyone', label: '@everyone', color: null, on: evOn, toggle: () => { draft.ping = pingState(draft.ping, 'everyone'); renderMenu(); } },
+            { key: 'here', label: '@here', color: null, on: hrOn, toggle: () => { draft.ping = pingState(draft.ping, 'here'); renderMenu(); } },
+            ...(d.roles || []).map((r) => ({
+              key: r.id,
+              label: `@${r.name}`,
+              color: r.color,
+              on: draft.roles.includes(r.id),
+              toggle: () => {
+                draft.roles = draft.roles.includes(r.id) ? draft.roles.filter((id) => id !== r.id) : [...draft.roles, r.id];
+                renderMenu();
+              },
+            })),
+          ];
+          const term = String(tagSearch[t] || '').trim().toLowerCase();
           const filtered = term ? allOptions.filter((o) => o.label.toLowerCase().includes(term)) : allOptions;
           listEl.replaceChildren(...(filtered.length
             ? filtered.map((o) => {
@@ -123,14 +141,14 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
             })
             : [h('div', { class: 'dc-ms-empty muted tiny' }, 'No matching tags')]));
         };
-        renderOptions(tagSearch[t]);
+        if (isOpen) renderMenu();
         const searchInput = h('input', {
           type: 'search',
           class: 'input dc-ms-search',
           placeholder: 'Search tags…',
           'aria-label': `Search ${label} tags`,
           value: tagSearch[t] || '',
-          oninput: (e) => { tagSearch[t] = e.target.value; renderOptions(tagSearch[t]); },
+          oninput: (e) => { tagSearch[t] = e.target.value; renderMenu(); },
         });
         return h('div', { class: 'dc-type' },
           h('div', { class: 'dc-type-head' }, ic(icon), h('div', { class: 'txt' }, h('b', {}, label), h('span', {}, sub)),
@@ -144,18 +162,28 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
               'aria-label': `${label} tags: ${summaryOf(s)}`,
               onclick: (e) => {
                 e.stopPropagation();
-                openTagMenu = isOpen ? null : t;
+                if (isOpen) { closeMenu(); return; }
+                openTagMenu = t;
+                tagDraft[t] = { ping: s.ping, roles: [...selRoles] };
                 show();
-                if (!isOpen) setTimeout(() => $(`[data-dc-menu="${t}"] .dc-ms-search`)?.focus(), 0);
+                setTimeout(() => $(`[data-dc-menu="${t}"] .dc-ms-search`)?.focus(), 0);
               },
             },
-            h('span', { class: 'dc-ms-val' }, h('span', { class: 'muted' }, 'Tags: '), summaryOf(s)),
+            valEl,
             h('span', { class: 'dc-ms-caret', 'aria-hidden': 'true' }, isOpen ? '▲' : '▼')),
             isOpen ? h('div', { class: 'dc-ms-menu', 'data-dc-menu': t, onclick: (e) => e.stopPropagation() },
-              h('div', { class: 'dc-ms-top' },
-                searchInput,
-                hasAny ? h('button', { type: 'button', class: 'dc-tag-clear', onclick: () => save({ types: { [t]: { ping: 'none', roles: [] } } }) }, 'Clear') : null),
-              listEl) : null),
+              h('div', { class: 'dc-ms-top' }, searchInput, clearBtn),
+              listEl,
+              h('div', { class: 'dc-ms-foot' },
+                countEl,
+                h('div', { class: 'dc-ms-actions' },
+                  h('button', { type: 'button', class: 'btn sm ghost', onclick: closeMenu }, 'Cancel'),
+                  button('btn sm primary', 'check', 'Save', async () => {
+                    const next = { ping: draft.ping, roles: [...draft.roles] };
+                    delete tagDraft[t];
+                    openTagMenu = null;
+                    await save({ types: { [t]: next } }, 'Tags saved');
+                  })))) : null),
           text);
       }),
       h('p', { class: 'muted tiny dc-foot' }, 'In the message {name} and {title} are filled in. A test pings exactly like the real thing. Live cards update themselves: picture, viewers, and a short report when the stream ends (edits never ping again).'));

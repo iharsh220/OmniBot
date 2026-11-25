@@ -1114,4 +1114,6 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 .dc-ms-opt input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; }
 .dc-ms-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-ms-empty { padding: 10px 8px; text-align: center; }
+.dc-ms-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.dc-ms-actions { display: flex; align-items: center; gap: 6px; }
 .dc-tag-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
