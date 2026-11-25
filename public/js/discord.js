@@ -8,13 +8,15 @@ const MODE_LABEL = { off: 'Off', youtube: 'YouTube', kick: 'Kick', both: 'YouTub
 export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICONS, getPage }) {
   const post = { text: '', url: '', image: null, preview: '', sending: false }; // the draft survives switching pages
   let openTagMenu = null; // which announcement type's tag dropdown is open
+  let lastData = null; // cached /api/discord payload for instant UI updates
+  let loading = false;
   const tagSearch = {}; // search filter per announcement type
   const tagDraft = {}; // unsaved { ping, roles } per type while the dropdown is open
   const closeMenu = () => {
     if (!openTagMenu) return;
     delete tagDraft[openTagMenu];
     openTagMenu = null;
-    show();
+    if (lastData) draw(lastData); else show();
   };
   if (typeof document !== 'undefined') {
     document.addEventListener('click', (e) => {
@@ -158,18 +160,22 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
             h('button', {
               type: 'button',
               class: 'input dc-ms-btn',
+              disabled: loading,
               'aria-expanded': String(isOpen),
               'aria-label': `${label} tags: ${summaryOf(s)}`,
               onclick: (e) => {
                 e.stopPropagation();
+                if (loading) return;
                 if (isOpen) { closeMenu(); return; }
                 openTagMenu = t;
                 tagDraft[t] = { ping: s.ping, roles: [...selRoles] };
-                show();
+                draw(d);
                 setTimeout(() => $(`[data-dc-menu="${t}"] .dc-ms-search`)?.focus(), 0);
               },
             },
-            valEl,
+            loading
+              ? h('span', { class: 'dc-ms-val dc-ms-loading' }, h('span', { class: 'dc-spin', 'aria-hidden': 'true' }), 'Loading Discord tags…')
+              : valEl,
             h('span', { class: 'dc-ms-caret', 'aria-hidden': 'true' }, isOpen ? '▲' : '▼')),
             isOpen ? h('div', { class: 'dc-ms-menu', 'data-dc-menu': t, onclick: (e) => e.stopPropagation() },
               h('div', { class: 'dc-ms-top' }, searchInput, clearBtn),
@@ -243,15 +249,28 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
         x.error ? h('span', { class: 'dc-bad' }, x.error) : null)))) : h('p', { class: 'muted tiny ad-pad' }, 'Nothing announced yet.'));
   }
 
-  async function show() {
+  function draw(d) {
     const root = $('#page-discord');
-    if (!root.children.length) root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
-    let d;
-    try { d = await api('/api/discord'); } catch (e) { root.replaceChildren(h('div', { class: 'notice warn' }, ic('alert'), h('div', {}, e.message))); return; }
     if (getPage() !== 'discord') return;
     root.replaceChildren(!d.server ? serverCard(d) : h('div', { class: 'grid two' },
       h('div', { class: 'grid', style: 'align-content:start' }, serverCard(d), typesCard(d)),
       h('div', { class: 'grid', style: 'align-content:start' }, liveCard(d), postCard(), historyCard(d))));
+  }
+
+  async function show() {
+    const root = $('#page-discord');
+    loading = true;
+    if (lastData) draw(lastData);
+    else root.replaceChildren(h('div', { class: 'dc-loading muted' }, h('span', { class: 'dc-spin', 'aria-hidden': 'true' }), 'Loading Discord server & tags…'));
+    let d;
+    try { d = await api('/api/discord'); } catch (e) {
+      loading = false;
+      root.replaceChildren(h('div', { class: 'notice warn' }, ic('alert'), h('div', {}, e.message)));
+      return;
+    }
+    loading = false;
+    lastData = d;
+    draw(d);
   }
   return { show };
 }
