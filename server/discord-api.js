@@ -31,13 +31,9 @@ export const has = (perms, name) => !!(perms & (1n << PERMS[name]));
 export const plain = (name) => String(name || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 
 const cache = new Map();
-/**
- * Text + announcement channels of a server: [{ id, name, perms, explicit, missing }].
- * explicit = somebody added the bot (or its own role) to that channel's permissions, i.e. "the bot was put there".
- */
-export async function guildChannels(guildId, { fresh = false } = {}) {
+async function guildData(guildId, { fresh = false } = {}) {
   const hit = cache.get(guildId);
-  if (!fresh && hit && Date.now() - hit.at < 60_000) return hit.list;
+  if (!fresh && hit && Date.now() - hit.at < 60_000) return hit;
   const me = await botId();
   const [channels, roles, member] = await Promise.all([dapi(`/guilds/${guildId}/channels`), dapi(`/guilds/${guildId}/roles`), dapi(`/guilds/${guildId}/members/${me}`)]);
   const mine = new Set([guildId, ...(member.roles || [])]);
@@ -60,7 +56,24 @@ export async function guildChannels(guildId, { fresh = false } = {}) {
     const explicit = ow.some((o) => (o.id === me || o.id === own) && (BigInt(o.allow) & ((1n << 10n) | (1n << 11n))));
     return { id: c.id, name: c.name, perms: p, explicit, missing: Object.keys(PERMS).filter((k) => !has(p, k)) };
   });
-  cache.set(guildId, { at: Date.now(), list });
+  // Exclude @everyone (id === guildId) and bot/integration managed roles; keep server order (highest first).
+  const roleList = roles
+    .filter((r) => r.id !== guildId && !r.managed)
+    .sort((a, b) => b.position - a.position)
+    .map((r) => ({ id: r.id, name: r.name, color: r.color ? `#${r.color.toString(16).padStart(6, '0')}` : null, mentionable: !!r.mentionable }));
+  const entry = { at: Date.now(), list, roles: roleList };
+  cache.set(guildId, entry);
   if (cache.size > 200) cache.delete(cache.keys().next().value);
-  return list;
+  return entry;
+}
+/**
+ * Text + announcement channels of a server: [{ id, name, perms, explicit, missing }].
+ * explicit = somebody added the bot (or its own role) to that channel's permissions, i.e. "the bot was put there".
+ */
+export async function guildChannels(guildId, opts) {
+  return (await guildData(guildId, opts)).list;
+}
+/** Mentionable server roles (excluding @everyone and managed bot roles): [{ id, name, color, mentionable }]. */
+export async function guildRoles(guildId, opts) {
+  return (await guildData(guildId, opts)).roles;
 }

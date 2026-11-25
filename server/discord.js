@@ -15,7 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import * as db from './store.js';
 import { config, tfetch } from './config.js';
-import { dapi, botId, botGuilds, guildChannels, plain, has, INVITE_PERMISSIONS } from './discord-api.js';
+import { dapi, botId, botGuilds, guildChannels, guildRoles, plain, has, INVITE_PERMISSIONS } from './discord-api.js';
 import { decrypt, encrypt, randomToken, sha256, safeEqual } from './crypto.js';
 import { getAccessToken, getUser, updateUser, listAccounts, normalizeAccounts } from './auth.js';
 import { addLogs } from './feed.js';
@@ -118,7 +118,14 @@ async function targets(user, type) {
 // ── Settings ──
 export function discordSettings(user) {
   const s = user?.discord || {};
-  return { enabled: !!s.enabled, since: s.since || 0, types: Object.fromEntries(TYPES.map((t) => [t, { on: true, ping: 'both', text: TEXT[t], ...(s.types?.[t] || {}) }])) };
+  return {
+    enabled: !!s.enabled,
+    since: s.since || 0,
+    types: Object.fromEntries(TYPES.map((t) => {
+      const cur = s.types?.[t] || {};
+      return [t, { on: true, ping: 'both', text: TEXT[t], ...cur, roles: Array.isArray(cur.roles) ? cur.roles : [] }];
+    })),
+  };
 }
 /** → the new `user.discord` (the server link itself is never taken from the request). */
 export async function validateDiscord(b, user) {
@@ -126,11 +133,19 @@ export async function validateDiscord(b, user) {
   const cur = discordSettings(user);
   const next = { ...(user.discord || {}), ...structuredClone(cur), modes: { ...(user.discord.modes || {}) } };
   if (b.enabled !== undefined) next.enabled = !!b.enabled;
+  const needsRoles = TYPES.some((t) => b.types?.[t]?.roles !== undefined);
+  const knownRoles = needsRoles ? new Set((await guildRoles(user.discord.guildId, { fresh: true })).map((r) => r.id)) : null;
   for (const t of TYPES) {
     const x = b.types?.[t];
     if (!x || typeof x !== 'object') continue;
     if (x.on !== undefined) next.types[t].on = !!x.on;
     if (x.ping !== undefined) { if (!PINGS.includes(x.ping)) throw bad('Unknown ping'); next.types[t].ping = x.ping; }
+    if (x.roles !== undefined) {
+      if (!Array.isArray(x.roles)) throw bad('Invalid roles list');
+      const ids = [...new Set(x.roles.map((id) => String(id)))].slice(0, 25);
+      for (const id of ids) if (!knownRoles.has(id)) throw bad('That tag/role is not in your server');
+      next.types[t].roles = ids;
+    }
     if (x.text !== undefined && t !== 'post') next.types[t].text = clean(x.text, 300) || TEXT[t];
   }
   if (b.modes && typeof b.modes === 'object') {
@@ -157,7 +172,20 @@ const plainText = (v, n) => clean(v, n).replace(/\s+/g, ' ').replace(/([\\`*_~|[
 const num = (n) => Number(n).toLocaleString('en-US');
 const length = (ms) => { const m = Math.max(1, Math.round(ms / MIN)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
 const bigAvatar = (u) => httpsOnly(String(u || '').replace(/=s\d+(?=-)/, '=s240'));
-const PING = { both: '@everyone @here', everyone: '@everyone', here: '@here', none: '' };
+function mentionLine(t) {
+  const parts = [];
+  if (t.ping === 'both' || t.ping === 'everyone') parts.push('@everyone');
+  if (t.ping === 'both' || t.ping === 'here') parts.push('@here');
+  for (const id of t.roles || []) if (/^\d{15,25}$/.test(id)) parts.push(`<@&${id}>`);
+  return parts.join(' ');
+}
+function allowedMentions(t) {
+  const roles = (t.roles || []).filter((id) => /^\d{15,25}$/.test(id)).slice(0, 25);
+  return {
+    parse: t.ping && t.ping !== 'none' ? ['everyone'] : [],
+    ...(roles.length ? { roles } : {}),
+  };
+}
 
 const publicUrl = () => /^https:\/\//.test(config.appUrl) && !/localhost|127\.0\.0\.1/.test(config.appUrl);
 /** Banner from our own site; on localhost Discord could not load it, so it is attached to the message instead. */
@@ -178,7 +206,7 @@ export function buildCard(s, ev, { test = false, file } = {}) {
   const name = plainText(ev.name, 80);
   const post = ev.type === 'post';
   const ended = !!ev.endedAt;
-  const head = [test ? '`TEST`' : '', PING[t.ping], post ? '' : fill(t.text, ev)].filter(Boolean).join(post ? ' ' : '\n').slice(0, 900);
+  const head = [test ? '`TEST`' : '', mentionLine(t), post ? '' : fill(t.text, ev)].filter(Boolean).join(post ? ' ' : '\n').slice(0, 900);
   const ban = post ? null : banner(ended ? 'ended.jpg' : `${ev.type}.gif`);
   const files = [];
   if (ban?.file) files.push(ban.file);
@@ -215,7 +243,7 @@ export function buildCard(s, ev, { test = false, file } = {}) {
       flags: 1 << 15, // Components V2
       components: [...(head ? [text(head)] : []), { type: 17, accent_color: ended ? 0x6b7280 : COLOR[ev.type], components: inside }],
       // only these mentions can ever ping, whatever a title or text contains
-      allowed_mentions: { parse: t.ping === 'none' ? [] : ['everyone'] },
+      allowed_mentions: allowedMentions(t),
     },
   };
 }
@@ -225,8 +253,8 @@ export function buildClassic(s, ev, { test = false } = {}) {
   const url = httpsOnly(ev.url);
   const image = httpsOnly(ev.image);
   return {
-    content: [test ? '`TEST`' : '', PING[t.ping], ev.type === 'post' ? clean(ev.text, 1800) : fill(t.text, ev)].filter(Boolean).join(ev.type === 'post' ? '\n' : ' ').slice(0, 2000),
-    allowed_mentions: { parse: t.ping === 'none' ? [] : ['everyone'] },
+    content: [test ? '`TEST`' : '', mentionLine(t), ev.type === 'post' ? clean(ev.text, 1800) : fill(t.text, ev)].filter(Boolean).join(ev.type === 'post' ? '\n' : ' ').slice(0, 2000),
+    allowed_mentions: allowedMentions(t),
     ...(ev.type === 'post' ? {} : { embeds: [{
       title: clean(ev.title, 250) || LABEL[ev.type], url: url || undefined, color: COLOR[ev.type], author: ev.name ? { name: clean(ev.name, 100), icon_url: httpsOnly(ev.avatar) || undefined } : undefined,
       description: ev.game ? `Playing **${plainText(ev.game, 80)}**` : undefined, image: image ? { url: image } : undefined, footer: { text: `OmniChat • ${LABEL[ev.type]}` }, timestamp: new Date(ev.start || Date.now()).toISOString(),
@@ -665,7 +693,14 @@ export async function userDiscord(user) {
   if (!user?.discord?.guildId) return null;
   const D = await db.get(KEY(user.id));
   const s = discordSettings(user);
-  return { server: user.discord.guildName || 'Discord server', enabled: s.enabled, types: Object.fromEntries(TYPES.map((t) => [t, s.types[t].on ? s.types[t].ping : 'off'])), ...brief(D), history: (D?.history || []).slice(0, 40) };
+  const tagSummary = (t) => {
+    const x = s.types[t];
+    if (!x.on) return 'off';
+    const rc = x.roles?.length || 0;
+    if (!rc) return x.ping;
+    return x.ping === 'none' ? `${rc} role${rc > 1 ? 's' : ''}` : `${x.ping} + ${rc} role${rc > 1 ? 's' : ''}`;
+  };
+  return { server: user.discord.guildName || 'Discord server', enabled: s.enabled, types: Object.fromEntries(TYPES.map((t) => [t, tagSummary(t)])), ...brief(D), history: (D?.history || []).slice(0, 40) };
 }
 
 // ── Dashboard actions ──
@@ -673,10 +708,15 @@ export async function discordStatus(user0) {
   let user = user0;
   let error = null;
   let channels = { list: [], others: [] };
-  try { user = await linkOwner(user0); channels = await channelsOf(user, { fresh: true }); } catch (e) { error = e.message; }
+  let roles = [];
+  try {
+    user = await linkOwner(user0);
+    channels = await channelsOf(user, { fresh: true });
+    if (linked(user)) roles = await guildRoles(user.discord.guildId);
+  } catch (e) { error = e.message; }
   const [D, cronDoc] = await Promise.all([db.get(KEY(user.id)), db.get('cron/discord')]);
   return {
-    settings: discordSettings(user), pings: PINGS, defaults: TEXT, server: linked(user) ? { name: user.discord.guildName || 'Discord server', auto: isOwner(user) } : null,
+    settings: discordSettings(user), pings: PINGS, roles, defaults: TEXT, server: linked(user) ? { name: user.discord.guildName || 'Discord server', auto: isOwner(user) } : null,
     canInvite: !!config.discord.clientSecret, error, channels: channels.list, others: channels.others, youtube: !!ytAcc(user), kick: !!kickAcc(user),
     push: { on: (D?.push?.leaseUntil || 0) > Date.now(), possible: publicUrl() }, obsAt: D?.obsAt || null,
     cron: { configured: !!config.cronSecret, lastAt: cronDoc?.[user.id]?.at || null }, history: (D?.history || []).slice(0, 20),

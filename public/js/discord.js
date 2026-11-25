@@ -3,7 +3,6 @@ const TYPE_INFO = {
   live: ['YouTube live', 'radio', 'When you go live on YouTube'], video: ['YouTube video', 'play', 'When a new video is public'],
   short: ['YouTube Shorts', 'zap', 'When a new Short is public'], post: ['Posts', 'message', 'Posts you write on this page'], kick: ['Kick live', 'radio', 'When you go live on Kick'],
 };
-const PING_LABEL = { both: '@everyone + @here', everyone: '@everyone', here: '@here', none: 'No ping' };
 const MODE_LABEL = { off: 'Off', youtube: 'YouTube', kick: 'Kick', both: 'YouTube + Kick' };
 
 export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICONS, getPage }) {
@@ -57,15 +56,54 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
   }
 
   function typesCard(d) {
+    const pingState = (ping, tag) => {
+      const hasEv = ping === 'both' || ping === 'everyone';
+      const hasHr = ping === 'both' || ping === 'here';
+      const ev = tag === 'everyone' ? !hasEv : hasEv;
+      const hr = tag === 'here' ? !hasHr : hasHr;
+      return ev && hr ? 'both' : ev ? 'everyone' : hr ? 'here' : 'none';
+    };
+    const roleMap = new Map((d.roles || []).map((r) => [r.id, r]));
+    const summaryOf = (s) => {
+      const out = [];
+      if (s.ping === 'both' || s.ping === 'everyone') out.push('@everyone');
+      if (s.ping === 'both' || s.ping === 'here') out.push('@here');
+      for (const id of s.roles || []) {
+        const r = roleMap.get(id);
+        out.push(r ? `@${r.name}` : '@deleted-role');
+      }
+      return out.length ? out.join(', ') : 'No ping';
+    };
     return h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('bell'), h('h3', {}, 'What gets announced')),
       Object.entries(TYPE_INFO).filter(([t]) => (t === 'kick' ? d.kick : t === 'post' || d.youtube)).map(([t, [label, icon, sub]]) => {
         const s = d.settings.types[t];
+        const selRoles = Array.isArray(s.roles) ? s.roles : [];
+        const hasAny = s.ping !== 'none' || selRoles.length > 0;
         const text = t === 'post' ? null : h('input', { class: 'input', value: s.text, maxlength: 300, placeholder: d.defaults[t], 'aria-label': `${label} message`, onchange: (e) => save({ types: { [t]: { text: e.target.value } } }) });
+        const evOn = s.ping === 'both' || s.ping === 'everyone';
+        const hrOn = s.ping === 'both' || s.ping === 'here';
+        const tagBtn = (name, on, color, onClick) => h('button', {
+          type: 'button',
+          class: `dc-tag${on ? ' on' : ''}`,
+          'aria-pressed': String(on),
+          onclick: onClick,
+        }, color ? h('span', { class: 'dc-tag-dot', style: `background:${color}` }) : null, name);
         return h('div', { class: 'dc-type' },
           h('div', { class: 'dc-type-head' }, ic(icon), h('div', { class: 'txt' }, h('b', {}, label), h('span', {}, sub)),
-            h('select', { class: 'select', 'aria-label': `${label} ping`, onchange: (e) => save({ types: { [t]: { ping: e.target.value } } }) }, d.pings.map((p) => h('option', { value: p, selected: p === s.ping }, PING_LABEL[p]))),
             button('btn sm', 'send', 'Send test', async () => { const r = await api('/api/discord/test', { method: 'POST', body: JSON.stringify({ type: t }) }); toast(`Test sent to ${r.channels.map((c) => `#${c}`).join(', ')}`); }),
             toggle(s.on, (v) => save({ types: { [t]: { on: v } } }), label)),
+          h('div', { class: 'dc-tags-wrap' },
+            h('div', { class: 'dc-tags-head' },
+              h('span', { class: 'muted tiny' }, 'Tags: ', h('strong', {}, summaryOf(s))),
+              hasAny ? h('button', { type: 'button', class: 'dc-tag-clear', onclick: () => save({ types: { [t]: { ping: 'none', roles: [] } } }) }, 'Clear') : null),
+            h('div', { class: 'dc-tags', role: 'group', 'aria-label': `${label} tags` },
+              tagBtn('@everyone', evOn, null, () => save({ types: { [t]: { ping: pingState(s.ping, 'everyone') } } })),
+              tagBtn('@here', hrOn, null, () => save({ types: { [t]: { ping: pingState(s.ping, 'here') } } })),
+              (d.roles || []).map((r) => {
+                const on = selRoles.includes(r.id);
+                const nextRoles = on ? selRoles.filter((id) => id !== r.id) : [...selRoles, r.id];
+                return tagBtn(`@${r.name}`, on, r.color, () => save({ types: { [t]: { roles: nextRoles } } }));
+              }))),
           text);
       }),
       h('p', { class: 'muted tiny dc-foot' }, 'In the message {name} and {title} are filled in. A test pings exactly like the real thing. Live cards update themselves: picture, viewers, and a short report when the stream ends (edits never ping again).'));
