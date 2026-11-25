@@ -6,6 +6,7 @@ export const ADMIN_PAGES = {
   activity: ['Activity', 'Every sign-in and action, newest first'],
   issues: ['Issues', 'Failed sign-ins, server and browser errors, platform problems'],
   discordlog: ['Discord', 'Servers, announcements and their problems'],
+  quota: ['YT Quota', 'Daily YouTube API quota history & per-streamer usage'],
   tickets: ['Support requests', 'Messages and screenshots sent by streamers'],
 };
 const PLATFORM = { youtube: 'YouTube', kick: 'Kick' };
@@ -21,6 +22,7 @@ const ISSUE_KINDS = {
 export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCsv, ICONS, getPage }) {
   const ui = { users: [], q: '', filter: '', sort: 'new', tab: 'activity', timer: null, seq: 0 };
   const lists = { activity: { q: '', kind: '' }, issues: { q: '', kind: '' } };
+  const qf = { preset: '30d', from: '', to: '', uid: '' };
 
   // ── small pieces ──
   const avatar = (u, cls = '') => {
@@ -90,7 +92,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
         kpi('key', 'Signed in · 24h', t.signedIn24h, 'Different streamers', '#activity'),
         kpi('help', 'Support requests', t.openTickets, 'Waiting for an answer', '#tickets'),
         kpi('plug', 'Need reconnect', t.problems, 'YouTube or Kick login expired', '#streamers'),
-        kpi('zap', 'YT quota · today', d.quota?.total || 0, `${fmtN(d.quota?.limit || 10000)} limit (${Math.round(((d.quota?.total || 0) / (d.quota?.limit || 10000)) * 100)}%) · resets midnight PT`, '#streamers')),
+        kpi('zap', 'YT quota · today', d.quota?.total || 0, `${fmtN(d.quota?.limit || 10000)} limit (${Math.round(((d.quota?.total || 0) / (d.quota?.limit || 10000)) * 100)}%) · resets midnight PT`, '#quota')),
       h('div', { class: 'grid two', style: 'margin-top:16px' },
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('clock'), h('h3', {}, 'Latest activity'), more('#activity')),
           d.recent.length ? table(HEAD.activity, d.recent.map((r) => actionRow(r))) : empty('clock', 'No activity yet', 'Sign-ins and actions show up here from now on.')),
@@ -255,6 +257,96 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
         d.history.length ? table(SENT_HEAD, d.history.map((x) => sentRow(x))) : empty('send', 'Nothing announced yet', 'Every announcement, also a failed one, shows up here.')));
   });
 
+  // ── YouTube Quota history ──
+  const fyStartYear = (day) => {
+    const [y, m] = day.split('-').map(Number);
+    return m >= 4 ? y : y - 1;
+  };
+  const shiftDays = (day, n) => {
+    const d = new Date(`${day}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  function quotaRange(today) {
+    if (qf.preset === 'today') return [today, today];
+    if (qf.preset === '7d') return [shiftDays(today, -6), today];
+    if (qf.preset === '30d') return [shiftDays(today, -29), today];
+    if (qf.preset === 'month') return [`${today.slice(0, 7)}-01`, today];
+    if (qf.preset.startsWith('fy:')) {
+      const y = Number(qf.preset.slice(3));
+      return [`${y}-04-01`, `${y + 1}-03-31`];
+    }
+    if (qf.preset === 'custom') return [qf.from, qf.to];
+    return ['', ''];
+  }
+  function loadQuota() {
+    const todayGuess = new Date().toISOString().slice(0, 10);
+    const [from0, to0] = quotaRange(qf.to || todayGuess);
+    const qs = new URLSearchParams();
+    if (from0) qs.set('from', from0);
+    if (to0) qs.set('to', to0);
+    if (qf.uid) qs.set('uid', qf.uid);
+    load('quota', `/api/admin/quota?${qs.toString()}`, (d) => {
+      if (qf.preset !== 'custom') {
+        const [f, t] = quotaRange(d.today);
+        qf.from = f;
+        qf.to = t;
+      }
+      const curFy = fyStartYear(d.today);
+      const minFy = fyStartYear(d.minDay || d.today);
+      const fyOpts = [];
+      for (let y = curFy; y >= Math.min(curFy - 2, minFy); y--) fyOpts.push([`fy:${y}`, `FY ${y}-${String(y + 1).slice(2)} (Apr ${y} – Mar ${y + 1})`]);
+      const presets = [['today', 'Today'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['month', 'This month'], ...fyOpts, ['all', 'All time'], ['custom', 'Custom date']];
+      const presetSel = h('select', { class: 'select', style: 'width:auto', 'aria-label': 'Date range', onchange: (e) => { qf.preset = e.target.value; loadQuota(); } },
+        presets.map(([v, l]) => h('option', { value: v, selected: v === qf.preset }, l)));
+      const fromIn = h('input', { type: 'date', class: 'input', style: 'width:auto', value: qf.from || '', 'aria-label': 'From date', onchange: (e) => { qf.preset = 'custom'; qf.from = e.target.value; loadQuota(); } });
+      const toIn = h('input', { type: 'date', class: 'input', style: 'width:auto', value: qf.to || '', 'aria-label': 'To date', onchange: (e) => { qf.preset = 'custom'; qf.to = e.target.value; loadQuota(); } });
+      const userSel = h('select', { class: 'select', style: 'width:auto', 'aria-label': 'Streamer filter', onchange: (e) => { qf.uid = e.target.value; loadQuota(); } },
+        h('option', { value: '', selected: !qf.uid }, 'All streamers'),
+        d.users.map((u) => h('option', { value: u.uid, selected: u.uid === qf.uid }, `${u.name || u.uid} (${fmtN(u.total)})`)));
+      const csv = () => exportCsv(`omnichat-yt-quota-${qf.from || 'all'}-to-${qf.to || d.today}`, ['date', 'total units', 'chat (5u)', 'posts (50u)', 'other (1u)', 'api calls', 'active streamers'],
+        d.days.map((x) => [x.day, x.total, x.chat, x.post, x.other, x.calls, x.usersCount]));
+      const kpi = (icon, label, val, foot) => h('div', { class: 'card kpi' }, h('div', { class: 'kpi-top' }, h('div', { class: 'kpi-ic' }, ic(icon)), label), h('div', { class: 'kpi-val' }, fmtN(val)), h('div', { class: 'kpi-foot' }, foot));
+      const s = d.summary;
+      $('#page-quota').replaceChildren(
+        h('div', { class: 'card', style: 'margin-bottom:16px' },
+          h('div', { class: 'logbar' },
+            presetSel,
+            fromIn,
+            h('span', { class: 'muted tiny' }, 'to'),
+            toIn,
+            userSel,
+            h('div', { class: 'spacer' }),
+            h('button', { class: 'btn sm ghost', type: 'button', onclick: loadQuota }, ic('refresh'), 'Refresh'),
+            h('button', { class: 'btn sm', type: 'button', onclick: csv }, ic('download'), 'Export CSV'))),
+        h('div', { class: 'grid kpis' },
+          kpi('zap', 'Total quota used', s.total, `${fmtN(s.calls)} API call${s.calls === 1 ? '' : 's'} · ${s.days} day${s.days === 1 ? '' : 's'}`),
+          kpi('message', 'Chat polling', s.chat, '5 units / poll'),
+          kpi('send', 'Chat posts', s.post, '50 units / post'),
+          kpi('chart', 'Average / day', s.avgPerDay, `Daily limit: ${fmtN(d.limit)} units (midnight PT)`)),
+        h('div', { class: 'grid two', style: 'margin-top:16px' },
+          h('div', { class: 'card' },
+            h('div', { class: 'card-head' }, ic('clock'), h('h3', {}, 'Daily usage'), h('span', { class: 'sub' }, `${d.days.length} day${d.days.length === 1 ? '' : 's'}`)),
+            d.days.length ? table(['Date', 'Total', 'Chat', 'Posts', 'Other', 'Calls', 'Streamers'], d.days.map((x) => h('tr', {},
+              h('td', { class: 'ad-nowrap' }, h('b', {}, x.day)),
+              h('td', { class: 'ad-nowrap' }, h('b', {}, fmtN(x.total)), ' ', tag(`${Math.round((x.total / d.limit) * 100)}%`, x.total >= d.limit * 0.8 ? 'bad' : x.total >= d.limit * 0.5 ? 'warn' : 'ok')),
+              h('td', {}, fmtN(x.chat)),
+              h('td', {}, fmtN(x.post)),
+              h('td', {}, fmtN(x.other)),
+              h('td', {}, fmtN(x.calls)),
+              h('td', {}, fmtN(x.usersCount))))) : empty('zap', 'No quota data in this range', 'YouTube API calls will appear here as streamers use OmniChat.')),
+          h('div', { class: 'card' },
+            h('div', { class: 'card-head' }, ic('users'), h('h3', {}, 'By streamer'), h('span', { class: 'sub' }, `${d.users.length} streamer${d.users.length === 1 ? '' : 's'}`)),
+            d.users.length ? table(['Streamer', 'Total', 'Chat', 'Posts', 'Other', 'Days'], d.users.map((u) => h('tr', { class: qf.uid === u.uid ? 'new' : '' },
+              h('td', {}, person(u)),
+              h('td', { class: 'ad-nowrap' }, h('b', {}, fmtN(u.total))),
+              h('td', {}, fmtN(u.chat)),
+              h('td', {}, fmtN(u.post)),
+              h('td', {}, fmtN(u.other)),
+              h('td', {}, fmtN(u.daysActive))))) : empty('users', 'No streamer usage yet', 'No YouTube API calls recorded in this range.'))));
+    });
+  }
+
   // ── Activity / Issues lists ──
   function renderList(id) {
     const st = lists[id];
@@ -296,6 +388,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
     if (getPage() === 'streamers' && location.hash === '#streamers') loadUsers();
     if (getPage() === 'tickets' && location.hash === '#tickets') loadTickets();
     if (getPage() === 'discordlog') loadDiscord();
+    if (getPage() === 'quota') loadQuota();
   }, 30_000);
 
   return {
@@ -305,6 +398,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
         $('#page-streamers').replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
         if (arg) { ui.tab = 'activity'; loadUser(arg); } else loadUsers();
       } else if (id === 'discordlog') loadDiscord();
+      else if (id === 'quota') loadQuota();
       else if (id === 'tickets') {
         $('#page-tickets').replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
         if (arg) loadTicket(arg); else loadTickets();

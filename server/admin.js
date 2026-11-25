@@ -12,7 +12,7 @@ import { readFeed } from './eggs.js';
 import { listTickets, readTicket, readShot, setTicketStatus, mailReady } from './support.js';
 import { adminDiscord, userDiscord } from './discord.js';
 import { issue, record, readList, searchList, LIST_MAX, AUDIT_DAYS } from './audit.js';
-import { readYtQuota } from './quota.js';
+import { readYtQuota, readYtQuotaHistory } from './quota.js';
 
 const DAY = 86_400_000;
 const ACTIVE_MS = 10 * 60_000;
@@ -149,6 +149,13 @@ admin.get('/activity', ah(async (req, res) => res.json(await search(req, 'audit/
 admin.get('/issues', ah(async (req, res) => res.json(await search(req, 'audit/issues', LIST_MAX.issues, ['message', 'where', 'kind']))));
 
 admin.get('/discord', ah(async (_req, res) => res.json(await adminDiscord(await allUsers()))));
+
+admin.get('/quota', ah(async (req, res) => {
+  const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
+  const uid = str(req.query.uid, 40);
+  const data = await readYtQuotaHistory({ from: day(req.query.from), to: day(req.query.to), uid });
+  res.json({ ...data, users: await withNames(data.users) });
+}));
 
 // ── Support requests ──
 admin.get('/tickets', ah(async (_req, res) => res.json({ mail: mailReady(), email: config.support.email || null, tickets: await withNames(await listTickets()) })));
