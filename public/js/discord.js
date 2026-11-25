@@ -7,6 +7,16 @@ const MODE_LABEL = { off: 'Off', youtube: 'YouTube', kick: 'Kick', both: 'YouTub
 
 export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICONS, getPage }) {
   const post = { text: '', url: '', image: null, preview: '', sending: false }; // the draft survives switching pages
+  let openTagMenu = null; // which announcement type's tag dropdown is open
+  const tagSearch = {}; // search filter per announcement type
+  if (typeof document !== 'undefined') {
+    document.addEventListener('click', (e) => {
+      if (openTagMenu && !e.target.closest?.('.dc-ms')) { openTagMenu = null; show(); }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && openTagMenu) { openTagMenu = null; show(); }
+    });
+  }
   const plat = (p) => h('span', { class: 'dc-plat', html: ICONS[p] });
   const toggle = (checked, onChange, label) => {
     const i = h('input', { type: 'checkbox', 'aria-label': label });
@@ -82,28 +92,70 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
         const text = t === 'post' ? null : h('input', { class: 'input', value: s.text, maxlength: 300, placeholder: d.defaults[t], 'aria-label': `${label} message`, onchange: (e) => save({ types: { [t]: { text: e.target.value } } }) });
         const evOn = s.ping === 'both' || s.ping === 'everyone';
         const hrOn = s.ping === 'both' || s.ping === 'here';
-        const tagBtn = (name, on, color, onClick) => h('button', {
-          type: 'button',
-          class: `dc-tag${on ? ' on' : ''}`,
-          'aria-pressed': String(on),
-          onclick: onClick,
-        }, color ? h('span', { class: 'dc-tag-dot', style: `background:${color}` }) : null, name);
+        const isOpen = openTagMenu === t;
+        const allOptions = [
+          { key: 'everyone', label: '@everyone', color: null, on: evOn, toggle: () => save({ types: { [t]: { ping: pingState(s.ping, 'everyone') } } }) },
+          { key: 'here', label: '@here', color: null, on: hrOn, toggle: () => save({ types: { [t]: { ping: pingState(s.ping, 'here') } } }) },
+          ...(d.roles || []).map((r) => ({
+            key: r.id,
+            label: `@${r.name}`,
+            color: r.color,
+            on: selRoles.includes(r.id),
+            toggle: () => {
+              const nextRoles = selRoles.includes(r.id) ? selRoles.filter((id) => id !== r.id) : [...selRoles, r.id];
+              save({ types: { [t]: { roles: nextRoles } } });
+            },
+          })),
+        ];
+        const listEl = h('div', { class: 'dc-ms-list', role: 'listbox', 'aria-multiselectable': 'true' });
+        const renderOptions = (q) => {
+          const term = String(q || '').trim().toLowerCase();
+          const filtered = term ? allOptions.filter((o) => o.label.toLowerCase().includes(term)) : allOptions;
+          listEl.replaceChildren(...(filtered.length
+            ? filtered.map((o) => {
+              const cb = h('input', { type: 'checkbox' });
+              cb.checked = o.on;
+              cb.addEventListener('change', o.toggle);
+              return h('label', { class: `dc-ms-opt${o.on ? ' on' : ''}` },
+                cb,
+                o.color ? h('span', { class: 'dc-tag-dot', style: `background:${o.color}` }) : null,
+                h('span', { class: 'dc-ms-name' }, o.label));
+            })
+            : [h('div', { class: 'dc-ms-empty muted tiny' }, 'No matching tags')]));
+        };
+        renderOptions(tagSearch[t]);
+        const searchInput = h('input', {
+          type: 'search',
+          class: 'input dc-ms-search',
+          placeholder: 'Search tags…',
+          'aria-label': `Search ${label} tags`,
+          value: tagSearch[t] || '',
+          oninput: (e) => { tagSearch[t] = e.target.value; renderOptions(tagSearch[t]); },
+        });
         return h('div', { class: 'dc-type' },
           h('div', { class: 'dc-type-head' }, ic(icon), h('div', { class: 'txt' }, h('b', {}, label), h('span', {}, sub)),
             button('btn sm', 'send', 'Send test', async () => { const r = await api('/api/discord/test', { method: 'POST', body: JSON.stringify({ type: t }) }); toast(`Test sent to ${r.channels.map((c) => `#${c}`).join(', ')}`); }),
             toggle(s.on, (v) => save({ types: { [t]: { on: v } } }), label)),
-          h('div', { class: 'dc-tags-wrap' },
-            h('div', { class: 'dc-tags-head' },
-              h('span', { class: 'muted tiny' }, 'Tags: ', h('strong', {}, summaryOf(s))),
-              hasAny ? h('button', { type: 'button', class: 'dc-tag-clear', onclick: () => save({ types: { [t]: { ping: 'none', roles: [] } } }) }, 'Clear') : null),
-            h('div', { class: 'dc-tags', role: 'group', 'aria-label': `${label} tags` },
-              tagBtn('@everyone', evOn, null, () => save({ types: { [t]: { ping: pingState(s.ping, 'everyone') } } })),
-              tagBtn('@here', hrOn, null, () => save({ types: { [t]: { ping: pingState(s.ping, 'here') } } })),
-              (d.roles || []).map((r) => {
-                const on = selRoles.includes(r.id);
-                const nextRoles = on ? selRoles.filter((id) => id !== r.id) : [...selRoles, r.id];
-                return tagBtn(`@${r.name}`, on, r.color, () => save({ types: { [t]: { roles: nextRoles } } }));
-              }))),
+          h('div', { class: `dc-ms${isOpen ? ' open' : ''}` },
+            h('button', {
+              type: 'button',
+              class: 'input dc-ms-btn',
+              'aria-expanded': String(isOpen),
+              'aria-label': `${label} tags: ${summaryOf(s)}`,
+              onclick: (e) => {
+                e.stopPropagation();
+                openTagMenu = isOpen ? null : t;
+                show();
+                if (!isOpen) setTimeout(() => $(`[data-dc-menu="${t}"] .dc-ms-search`)?.focus(), 0);
+              },
+            },
+            h('span', { class: 'dc-ms-val' }, h('span', { class: 'muted' }, 'Tags: '), summaryOf(s)),
+            h('span', { class: 'dc-ms-caret', 'aria-hidden': 'true' }, isOpen ? '▲' : '▼')),
+            isOpen ? h('div', { class: 'dc-ms-menu', 'data-dc-menu': t, onclick: (e) => e.stopPropagation() },
+              h('div', { class: 'dc-ms-top' },
+                searchInput,
+                hasAny ? h('button', { type: 'button', class: 'dc-tag-clear', onclick: () => save({ types: { [t]: { ping: 'none', roles: [] } } }) }, 'Clear') : null),
+              listEl) : null),
           text);
       }),
       h('p', { class: 'muted tiny dc-foot' }, 'In the message {name} and {title} are filled in. A test pings exactly like the real thing. Live cards update themselves: picture, viewers, and a short report when the stream ends (edits never ping again).'));
