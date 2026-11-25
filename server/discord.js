@@ -12,6 +12,7 @@
 // posts in every channel the bot was ADDED to, and the channel's name says what: youtube / kick / both.
 // A streamer can never post in a server that is not linked to them (the bot may mention everyone!).
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import * as db from './store.js';
 import { config, tfetch } from './config.js';
 import { dapi, botId, botGuilds, guildChannels, plain, has, INVITE_PERMISSIONS } from './discord-api.js';
@@ -31,7 +32,7 @@ export const PINGS = ['both', 'everyone', 'here', 'none'];
 const LABEL = { live: 'YouTube live', video: 'YouTube video', short: 'YouTube Short', post: 'Post', kick: 'Kick live' };
 const NO_CHANNEL = 'No channel found: add the OmniChat bot to a channel of your server first';
 const COLOR = { live: 0xff0033, video: 0xff0033, short: 0xff0033, post: 0x6d4aff, kick: 0x53fc18 };
-const BUTTON = { live: 'Watch live', video: 'Watch video', short: 'Watch Short', post: 'Open link', kick: 'Watch on Kick' };
+const BUTTON = { live: ['Watch live', '▶️'], video: ['Watch video', '▶️'], short: ['Watch Short', '▶️'], post: ['Open link', '🔗'], kick: ['Watch on Kick', '▶️'] };
 const TEXT = {
   live: '**{name}** is LIVE on YouTube!', video: '**{name}** uploaded a new video!', short: '**{name}** posted a new Short!',
   post: '', kick: '**{name}** is LIVE on Kick!',
@@ -147,36 +148,108 @@ export async function validateDiscord(b, user) {
   return next;
 }
 
-const fill = (text, ev) => text.replace(/\{(name|title|url)\}/g, (_, k) => clean(ev[k], 200));
+// ── The message ──
+// Discord "Components V2" card: ping line, animated banner, title + picture of the streamer, stream picture, facts, buttons.
+const fill = (text, ev) => text.replace(/\{(name|title|url)\}/g, (_, k) => (k === 'url' ? clean(ev[k], 300) : plainText(ev[k], 200)));
 const httpsOnly = (u) => (/^https:\/\/[^\s<>"]+$/.test(String(u || '')) ? String(u).slice(0, 500) : null);
-export function buildMessage(s, ev, { test = false } = {}) {
+/** Names and titles come from outside: no line breaks, no markdown, no mentions. */
+const plainText = (v, n) => clean(v, n).replace(/\s+/g, ' ').replace(/([\\`*_~|[\]])/g, '\\$1').replace(/@/g, '@\u200b');
+const num = (n) => Number(n).toLocaleString('en-US');
+const length = (ms) => { const m = Math.max(1, Math.round(ms / MIN)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
+const bigAvatar = (u) => httpsOnly(String(u || '').replace(/=s\d+(?=-)/, '=s240'));
+const PING = { both: '@everyone @here', everyone: '@everyone', here: '@here', none: '' };
+
+const publicUrl = () => /^https:\/\//.test(config.appUrl) && !/localhost|127\.0\.0\.1/.test(config.appUrl);
+/** Banner from our own site; on localhost Discord could not load it, so it is attached to the message instead. */
+function banner(name) {
+  if (publicUrl()) return { url: `${config.appUrl}/discord/${name}` };
+  try { return { url: `attachment://${name}`, file: { name, type: name.endsWith('gif') ? 'image/gif' : 'image/jpeg', buf: fs.readFileSync(new URL(`../public/discord/${name}`, import.meta.url)) } }; } catch { return null; }
+}
+const text = (content) => ({ type: 10, content });
+const gallery = (url, description) => ({ type: 12, items: [{ media: { url }, description }] });
+const linkButton = (label, url, emoji) => ({ type: 2, style: 5, label, url, ...(emoji ? { emoji: { name: emoji } } : {}) });
+
+/** → { payload, files } */
+export function buildCard(s, ev, { test = false, file } = {}) {
   const t = s.types[ev.type];
-  const ping = { both: '@everyone @here', everyone: '@everyone', here: '@here', none: '' }[t.ping];
-  const body = ev.type === 'post' ? ev.text : fill(t.text, ev);
+  const url = httpsOnly(ev.url);
+  const image = httpsOnly(ev.image);
+  const avatar = bigAvatar(ev.avatar);
+  const name = plainText(ev.name, 80);
+  const post = ev.type === 'post';
+  const ended = !!ev.endedAt;
+  const head = [test ? '`TEST`' : '', PING[t.ping], post ? '' : fill(t.text, ev)].filter(Boolean).join(post ? ' ' : '\n').slice(0, 900);
+  const ban = post ? null : banner(ended ? 'ended.jpg' : `${ev.type}.gif`);
+  const files = [];
+  if (ban?.file) files.push(ban.file);
+  if (file) files.push(file);
+
+  const title = plainText(ev.title, 200) || LABEL[ev.type];
+  const main = post ? `### ${name || 'OmniChat'}\n${clean(ev.text, 1800)}` : `## ${url ? `[${title}](${url})` : title}\n${name ? `**${name}** · ` : ''}${LABEL[ev.type]}`;
+  const facts = [];
+  if (ev.game) facts.push(`🎮 **${plainText(ev.game, 60)}**`);
+  if (ended) {
+    facts.push(`⏱️ **${length(ev.endedAt - ev.start)}** live`);
+    if (ev.peak > 0) facts.push(`🔥 Peak **${num(ev.peak)}** viewers`);
+  } else if (isLive(ev.type)) {
+    if (ev.viewers > 0) facts.push(`👀 **${num(ev.viewers)}** watching`);
+    facts.push(`⏱️ Started <t:${Math.floor((ev.start || Date.now()) / 1000)}:R>`);
+  }
+  const buttons = [];
+  if (url) buttons.push(ended ? linkButton(ev.type === 'live' ? 'Watch replay' : 'Open Kick', url, '⏪') : linkButton(BUTTON[ev.type][0], url, BUTTON[ev.type][1]));
+  for (const b of (post ? [] : ev.more || []).slice(0, 3)) if (httpsOnly(b.url)) buttons.push(linkButton(b.label, b.url, b.emoji));
+
+  const inside = [
+    ban ? gallery(ban.url, ended ? 'Stream ended' : LABEL[ev.type]) : null,
+    avatar ? { type: 9, components: [text(main)], accessory: { type: 11, media: { url: avatar }, description: clean(ev.name, 80) || undefined } } : text(main),
+    image ? gallery(image, clean(ev.title, 200) || undefined) : null,
+    file ? gallery(`attachment://${file.name}`) : null,
+    facts.length ? text(facts.join('  ·  ')) : null,
+    buttons.length ? { type: 14, divider: true, spacing: 1 } : null,
+    buttons.length ? { type: 1, components: buttons } : null,
+    post ? null : text(`-# ${ended ? 'Stream ended' : 'OmniChat'} · <t:${Math.floor((ended ? ev.endedAt : ev.start || Date.now()) / 1000)}:f>`),
+  ].filter(Boolean);
+  return {
+    files,
+    payload: {
+      flags: 1 << 15, // Components V2
+      components: [...(head ? [text(head)] : []), { type: 17, accent_color: ended ? 0x6b7280 : COLOR[ev.type], components: inside }],
+      // only these mentions can ever ping, whatever a title or text contains
+      allowed_mentions: { parse: t.ping === 'none' ? [] : ['everyone'] },
+    },
+  };
+}
+/** Plain embed: only used when Discord refuses the card, so an announcement is never lost over its looks. */
+export function buildClassic(s, ev, { test = false } = {}) {
+  const t = s.types[ev.type];
   const url = httpsOnly(ev.url);
   const image = httpsOnly(ev.image);
   return {
-    content: [test ? '`TEST`' : '', ping, body].filter(Boolean).join(ev.type === 'post' ? '\n' : ' ').slice(0, 2000),
-    // only these mentions can ever ping, whatever a title or text contains
+    content: [test ? '`TEST`' : '', PING[t.ping], ev.type === 'post' ? clean(ev.text, 1800) : fill(t.text, ev)].filter(Boolean).join(ev.type === 'post' ? '\n' : ' ').slice(0, 2000),
     allowed_mentions: { parse: t.ping === 'none' ? [] : ['everyone'] },
     ...(ev.type === 'post' ? {} : { embeds: [{
-      title: clean(ev.title, 250) || LABEL[ev.type], url: url || undefined, color: COLOR[ev.type],
-      author: ev.name ? { name: clean(ev.name, 100), icon_url: httpsOnly(ev.avatar) || undefined } : undefined,
-      description: ev.game ? `Playing **${clean(ev.game, 80)}**` : undefined,
-      image: image ? { url: image } : undefined,
-      footer: { text: `OmniChat • ${LABEL[ev.type]}` }, timestamp: new Date(ev.start || Date.now()).toISOString(),
+      title: clean(ev.title, 250) || LABEL[ev.type], url: url || undefined, color: COLOR[ev.type], author: ev.name ? { name: clean(ev.name, 100), icon_url: httpsOnly(ev.avatar) || undefined } : undefined,
+      description: ev.game ? `Playing **${plainText(ev.game, 80)}**` : undefined, image: image ? { url: image } : undefined, footer: { text: `OmniChat • ${LABEL[ev.type]}` }, timestamp: new Date(ev.start || Date.now()).toISOString(),
     }] }),
-    ...(url ? { components: [{ type: 1, components: [{ type: 2, style: 5, label: BUTTON[ev.type], url }] }] } : {}),
+    ...(url ? { components: [{ type: 1, components: [linkButton(BUTTON[ev.type][0], url)] }] } : {}),
   };
 }
-async function send(channel, payload, { nonce, file } = {}) {
-  // enforce_nonce: if our first try did arrive, Discord returns that message instead of posting a second one
-  const json = { ...payload, ...(nonce ? { nonce, enforce_nonce: true } : {}) };
-  if (!file) return dapi(`/channels/${channel}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(json) });
+async function call(method, path, payload, files) {
+  if (!files?.length) return dapi(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const form = new FormData();
-  form.append('payload_json', JSON.stringify(json));
-  form.append('files[0]', new Blob([file.buf], { type: file.type }), file.name);
-  return dapi(`/channels/${channel}/messages`, { method: 'POST', body: form });
+  form.append('payload_json', JSON.stringify({ ...payload, attachments: files.map((f, i) => ({ id: i, filename: f.name })) }));
+  files.forEach((f, i) => form.append(`files[${i}]`, new Blob([f.buf], { type: f.type }), f.name));
+  return dapi(path, { method, body: form });
+}
+async function send(channel, s, ev, { nonce, file, test } = {}) {
+  // enforce_nonce: if our first try did arrive, Discord returns that message instead of posting a second one
+  const once = nonce ? { nonce, enforce_nonce: true } : {};
+  const card = buildCard(s, ev, { test, file });
+  try { return await call('POST', `/channels/${channel}/messages`, { ...card.payload, ...once }, card.files); } catch (e) {
+    if (e.discord !== 400) throw e;
+    console.warn('[discord] card refused, sending a plain embed:', e.message);
+    return call('POST', `/channels/${channel}/messages`, { ...buildClassic(s, ev, { test }), ...once }, file ? [file] : []);
+  }
 }
 
 // ── One announcement per stream / video and channel ──
@@ -214,11 +287,14 @@ async function claim(uid, ev) {
   }, {});
   return got;
 }
+const cardOf = (ev) => ({ type: ev.type, title: clean(ev.title, 200), url: ev.url, image: ev.image || null, game: ev.game || null, name: ev.name, avatar: ev.avatar, start: ev.start, more: ev.more || [], viewers: ev.viewers || 0, peak: ev.viewers || 0, endedAt: 0 });
 async function finish(uid, ev, result) {
   await db.update(KEY(uid), (D) => {
     const now = Date.now();
     const x = (D.done || []).find((d) => d.k === ev.key);
-    if (x) Object.assign(x, { state: result.error ? 'failed' : 'sent', at: now });
+    if (x) Object.assign(x, { state: result.error ? 'failed' : 'sent', at: now, ...(result.id && isLive(ev.type) ? { mid: result.id, ev: cardOf(ev) } : {}) });
+    // only the last few live cards are ever edited again
+    (D.done || []).filter((d) => d.ev).slice(0, -8).forEach((d) => { delete d.ev; delete d.mid; });
     D.history = [{
       ts: now, type: ev.type, channel: ev.chName, title: clean(ev.title || ev.text, 120), url: httpsOnly(ev.url), source: ev.source, ok: !result.error,
       error: result.error || null, late: ev.start && isLive(ev.type) && !ev.manual ? Math.max(0, Math.round((now - ev.start) / 1000)) : null, messageId: result.id || null,
@@ -240,12 +316,13 @@ export async function announce(user, ev, { file } = {}) {
   if (isLive(ev.type) && !ev.manual && Date.now() - ev.start > 30 * MIN) return 'old';
   const channels = await targets(user, ev.type);
   if (!channels.length) return 'nochannel';
+  ev = { ...ev, name: ev.name || user.name, avatar: ev.avatar || user.avatar, more: moreLinks(user, ev.type) };
   const postIn = async (c) => {
     const one = { ...ev, key: `${ev.key}@${c.id}`, ch: c.id, chName: c.name };
     if (!(await claim(user.id, one))) return 'already';
     let result;
     try {
-      result = { id: (await send(c.id, buildMessage(s, ev), { nonce: sha256(`${user.id}|${one.key}`).slice(0, 25), file })).id };
+      result = { id: (await send(c.id, s, ev, { nonce: sha256(`${user.id}|${one.key}`).slice(0, 25), file })).id };
     } catch (e) { result = { error: `#${c.name}: ${e.message}${c.missing.length ? ` (missing: ${c.missing.join(', ')})` : ''}` }; }
     await finish(user.id, one, result);
     await addLogs(user.id, [result.error
@@ -264,37 +341,113 @@ const safely = async (work, uid) => { try { return await work(); } catch (e) { c
 // ── Where announcements come from ──
 const ytAcc = (user) => listAccounts(user, 'youtube')[0];
 const kickAcc = (user) => listAccounts(user, 'kick')[0];
+/** Second and third button: subscribe, and the streamer's other platform. */
+function moreLinks(user, type) {
+  const y = ytAcc(user);
+  const k = kickAcc(user);
+  const kickUrl = k?.channelSlug ? `https://kick.com/${encodeURIComponent(k.channelSlug)}` : null;
+  if (type === 'kick') return y ? [{ label: 'YouTube', emoji: '🔴', url: `https://www.youtube.com/channel/${y.channelId}?sub_confirmation=1` }] : [];
+  return [...(y ? [{ label: 'Subscribe', emoji: '🔔', url: `https://www.youtube.com/channel/${y.channelId}?sub_confirmation=1` }] : []), ...(type === 'live' && kickUrl ? [{ label: 'Kick', emoji: '🟢', url: kickUrl }] : [])];
+}
 const ytLive = (user, b, source) => ({
   type: 'live', key: `yt:${b.id}`, start: b.start || Date.now(), title: b.title, url: `https://www.youtube.com/watch?v=${b.id}`, image: b.image,
-  name: ytAcc(user).channelName, avatar: ytAcc(user).avatar, source,
+  name: ytAcc(user).channelName, avatar: ytAcc(user).avatar, viewers: b.viewers, source,
 });
 const kickLive = (user, k, source) => {
   const acc = kickAcc(user);
   const start = k.start || Date.now();
-  return { type: 'kick', key: `kick:${Math.round(start / MIN)}`, start, title: k.title, url: `https://kick.com/${encodeURIComponent(acc.channelSlug)}`, image: k.image, game: k.game, name: acc.channelName, avatar: acc.avatar, source };
+  return { type: 'kick', key: `kick:${Math.round(start / MIN)}`, start, title: k.title, url: `https://kick.com/${encodeURIComponent(acc.channelSlug)}`, image: k.image, game: k.game, viewers: k.viewers, name: user.name || acc.channelName, avatar: acc.avatar, source };
 };
+
+/** Kick creates the stream picture only a few minutes after the start; until then its address answers 403. */
+async function usable(url) {
+  if (!httpsOnly(url)) return null;
+  try {
+    const r = await tfetch(url, {}, 1500);
+    r.body?.cancel().catch(() => {});
+    return r.ok && /^image\//.test(r.headers.get('content-type') || '') ? url : null;
+  } catch { return null; }
+}
+async function kickInfo(user) {
+  const k = await kickChannel(user.id, kickAcc(user));
+  return k ? { ...k, image: k.live ? await usable(k.image) : null } : k;
+}
+
+// ── Live cards keep themselves up to date: picture, title, viewers, and a short report at the end ──
+const openCards = (D, type) => (D?.done || []).filter((x) => x.type === type && x.state === 'sent' && x.mid && x.ev && Date.now() - x.at < 18 * 60 * MIN);
+/** info: { live: true, title, image, game, viewers } | { live: false }. Returns whether every open card has its picture. */
+export async function updateCards(user, type, info, D0) {
+  const D = D0 || (await db.get(KEY(user.id)));
+  const now = Date.now();
+  const s = discordSettings(user);
+  const newest = new Map();
+  for (const x of openCards(D, type)) newest.set(x.ch, x); // the list is oldest first
+  const changed = new Map();
+  for (const x of newest.values()) {
+    const ev = { ...x.ev };
+    if (info.live) {
+      if (ev.endedAt && now - ev.endedAt > 20 * MIN) continue; // an older stream
+      ev.endedAt = 0; // reconnected after a drop
+      ev.title = clean(info.title, 200) || ev.title;
+      ev.game = info.game || ev.game;
+      ev.image = info.image || ev.image;
+      if (info.viewers != null) { ev.viewers = info.viewers; ev.peak = Math.max(ev.peak || 0, info.viewers); }
+    } else {
+      if (ev.endedAt) continue;
+      ev.endedAt = now;
+    }
+    const sig = JSON.stringify([ev.title, ev.game, ev.image, ev.viewers, ev.endedAt]);
+    if (sig === x.sig) continue;
+    try {
+      const card = buildCard(s, ev);
+      await call('PATCH', `/channels/${x.ch}/messages/${x.mid}`, card.payload, card.files); // an edit never pings again
+      changed.set(x.k, { ev, sig, upd: now });
+    } catch (e) {
+      // deleted by hand or not editable any more → leave it alone from now on
+      if (e.discord === 404 || e.discord === 403 || e.discord === 400) changed.set(x.k, null);
+      else console.warn('[discord] card update', e.message);
+    }
+  }
+  if (changed.size) {
+    await db.update(KEY(user.id), (d) => {
+      for (const x of d.done || []) if (changed.has(x.k)) { const c = changed.get(x.k); if (c) Object.assign(x, c); else { delete x.ev; delete x.mid; } }
+      return d;
+    }, {});
+  }
+  return [...newest.values()].every((x) => (changed.get(x.k)?.ev || x.ev).image);
+}
 
 /** engine.tick: the overlay/dashboard polling found a live stream. Remembers it in the state, so it costs nothing afterwards. */
 export async function announceFromTick(user, states) {
   if (!user.discord?.enabled || !linked(user)) return;
-  const settled = (r) => r !== 'failed';
+  const now = Date.now();
+  const one = async (st, type, id, make, info) => {
+    if (!st) return;
+    if (st.live && id && st._announced !== id) {
+      const r = await safely(async () => announce(user, await make()), user.id);
+      if (r !== 'failed') { st._announced = id; st._card = { open: r === 'sent' || r === 'already', at: now, image: false }; }
+    } else if (st.live && id && st._card?.open && now - st._card.at > (st._card.image ? 3 * MIN : 45_000)) {
+      const image = await safely(async () => updateCards(user, type, { live: true, ...(await info()) }), user.id);
+      st._card = { open: true, at: now, image: image === true };
+    } else if (!st.live && st._card?.open) {
+      const r = await safely(() => updateCards(user, type, { live: false }), user.id);
+      if (r !== 'failed') st._card = { open: false };
+    }
+  };
   const y = states.youtube;
-  if (y?.live && y._official && y._privacy === 'public' && y._announced !== y._videoId) {
-    const r = await safely(() => announce(user, ytLive(user, { id: y._videoId, title: y.title, start: y._startedAt, image: y._image }, 'polling')), user.id);
-    if (settled(r)) y._announced = y._videoId;
-  }
+  await one(y, 'live', y?._official && y._privacy === 'public' ? y._videoId : null,
+    () => ytLive(user, { id: y._videoId, title: y.title, start: y._startedAt, image: y._image, viewers: y.viewers }, 'polling'), () => ({ title: y.title, image: y._image, viewers: y.viewers }));
   const k = states.kick;
-  if (k?.live && k._startedAt && k._announced !== k._startedAt) {
-    const r = await safely(() => announce(user, kickLive(user, { title: k.title, start: k._startedAt, image: k._image, game: k._game }, 'polling')), user.id);
-    if (settled(r)) k._announced = k._startedAt;
-  }
+  await one(k, 'kick', k?._startedAt || null,
+    async () => kickLive(user, { title: k.title, start: k._startedAt, image: await usable(k._image), game: k.game, viewers: k.viewers }, 'polling'), async () => ({ title: k.title, image: k._card?.image ? k._image : await usable(k._image), game: k.game, viewers: k.viewers }));
 }
-/** Kick told us directly. The picture / game are a bonus: a slow API must not delay the ping. */
+/** Kick told us directly. The picture / game are a bonus: a slow API must not delay the ping (the card gets them later). */
 export async function announceKickWebhook(user, payload) {
-  if (!payload?.is_live || !user.discord?.enabled || !linked(user)) return;
+  if (!user.discord?.enabled || !linked(user) || !kickAcc(user)) return;
   await safely(async () => {
-    const info = await Promise.race([kickChannel(user.id, kickAcc(user)).catch(() => null), new Promise((r) => setTimeout(r, 1500, null))]);
-    return announce(user, kickLive(user, { title: payload.title || info?.title, start: Date.parse(payload.started_at) || Date.now(), image: info?.image, game: info?.game }, 'Kick webhook'));
+    if (!payload?.is_live) return updateCards(user, 'kick', { live: false });
+    const info = await Promise.race([kickInfo(user).catch(() => null), new Promise((r) => setTimeout(r, 1500, null))]);
+    return announce(user, kickLive(user, { title: payload.title || info?.title, start: Date.parse(payload.started_at) || Date.now(), image: info?.image, game: info?.game, viewers: info?.viewers }, 'Kick webhook'));
   }, user.id);
 }
 
@@ -312,12 +465,14 @@ export async function checkLive(user, source, { youtube = true, kick = true } = 
       if (!youtube || !ytAcc(user)) return;
       const list = (await activeBroadcasts(await ytToken(user))).filter((b) => b.privacy === 'public');
       out.youtube = list.length > 0;
+      if (list[0]) out.yt = { title: list[0].title, image: list[0].image };
       for (const b of list) await announce(user, ytLive(user, b, source));
     })().catch((e) => { out.error = `YouTube: ${e.message}`; out.quota = e.reason === 'quotaExceeded'; }),
     (async () => {
       if (!kick || !kickAcc(user)) return;
-      const k = await kickChannel(user.id, kickAcc(user));
+      const k = await kickInfo(user);
       out.kick = !!k?.live;
+      if (k?.live) out.kk = { title: k.title, image: k.image, game: k.game, viewers: k.viewers };
       if (k?.live && k.start) await announce(user, kickLive(user, k, source));
     })().catch((e) => { out.error = [out.error, `Kick: ${e.message}`].filter(Boolean).join(' · '); }),
   ]);
@@ -390,7 +545,6 @@ async function handleVideos(user, ids, source) {
 }
 
 const topicFor = (user) => `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${ytAcc(user).channelId}`;
-const publicUrl = () => /^https:\/\//.test(config.appUrl) && !/localhost|127\.0\.0\.1/.test(config.appUrl);
 /** (Re)subscribe to YouTube's upload push; the lease lasts some days and is renewed 2 days before it ends. */
 export async function ensurePush(user, D) {
   if (!publicUrl() || !ytAcc(user)) return;
@@ -444,7 +598,14 @@ export async function cron() {
     const due = (k, ms) => now - (last[k] || 0) >= ms - 5000;
     out.checked += 1;
     if (now > (last.quotaUntil || 0)) {
-      const r = await checkLive(user, 'scheduler', { kick: due('kick', 5 * MIN) });
+      // a fresh Kick card without its picture is worth looking at every minute
+      const kickCard = openCards(D, 'kick').at(-1);
+      const r = await checkLive(user, 'scheduler', { kick: due('kick', 5 * MIN) || !!(kickCard && !kickCard.ev.endedAt && !kickCard.ev.image && now - kickCard.at < 20 * MIN) });
+      for (const [type, live, info] of [['live', r.youtube, r.yt], ['kick', r.kick, r.kk]]) {
+        const x = openCards(D, type).at(-1);
+        if (!x || live === null || now - x.at < 45_000) continue;
+        if (live ? now - (x.upd || x.at) > (x.ev.image ? 5 * MIN : 45_000) : !x.ev.endedAt && now - x.at > 3 * MIN) await safely(() => updateCards(user, type, live ? { live: true, ...info } : { live: false }, D), uid);
+      }
       if (r.error) { out.error = r.error; await issue(null, { uid, level: 'warn', kind: 'discord', message: `Live check failed: ${r.error}`, dedupeMs: 60 * MIN }); }
       if (r.quota) last.quotaUntil = now + 15 * MIN;
     }
@@ -521,21 +682,28 @@ export async function discordStatus(user0) {
     cron: { configured: !!config.cronSecret, lastAt: cronDoc?.[user.id]?.at || null }, history: (D?.history || []).slice(0, 20),
   };
 }
-const SAMPLE = {
-  live: { title: 'Test stream: Steal an Egg with viewers', path: '/live' }, video: { title: 'Test video title', path: '/videos' }, short: { title: 'Test Short title #shorts', path: '/shorts' }, kick: { title: 'Test Kick stream' },
-};
+const SAMPLE = { live: 'Test stream: Steal an Egg with viewers', video: 'Test video title', short: 'Test Short title', kick: 'Test Kick stream' };
 /** A test looks exactly like the real thing (ping included), marked TEST. Not recorded as an announcement. */
 export async function sendTest(user, type) {
   if (!TYPES.includes(type)) throw bad('Unknown type');
   if (!linked(user)) throw bad('Add OmniChat to your Discord server first');
   const s = discordSettings(user);
-  const list = await targets(user, type);
-  if (!list.length) throw bad(`No channel for ${type === 'kick' ? 'Kick' : 'YouTube'} yet: add the bot to a channel`);
-  const acc = type === 'kick' ? kickAcc(user) : ytAcc(user);
-  const url = !acc ? null : type === 'kick' ? `https://kick.com/${encodeURIComponent(acc.channelSlug)}` : `https://www.youtube.com/channel/${acc.channelId}${SAMPLE[type]?.path || ''}`;
-  const m = buildMessage(s, { type, title: SAMPLE[type]?.title, text: 'This is a test post.', url, name: acc?.channelName || user.name, avatar: acc?.avatar, start: Date.now() }, { test: true });
-  for (const c of list) await send(c.id, m);
-  return { channels: list.map((c) => c.name) };
+  const channels = await targets(user, type);
+  if (!channels.length) throw bad(`No channel for ${type === 'kick' ? 'Kick' : 'YouTube'} yet: add the bot to a channel`);
+  const y = ytAcc(user);
+  const acc = type === 'kick' ? kickAcc(user) : y;
+  // the newest upload's picture, so the test has a real thumbnail
+  let image = null;
+  try {
+    if (y && type !== 'post') {
+      const token = await ytToken(user);
+      image = (await videosByIds(token, (await uploadIds(token, y.channelId)).items.slice(0, 1).map((x) => x.id)))[0]?.image || null;
+    }
+  } catch { /* the test works without it */ }
+  const url = type === 'post' || !acc ? null : type === 'kick' ? `https://kick.com/${encodeURIComponent(acc.channelSlug)}` : `https://www.youtube.com/channel/${acc.channelId}${{ live: '/live', video: '/videos', short: '/shorts' }[type]}`;
+  const ev = { type, title: SAMPLE[type], text: 'This is a test post.', url, image, name: user.name || acc?.channelName, avatar: acc?.avatar || user.avatar, start: Date.now(), more: moreLinks(user, type), ...(type === 'kick' ? { game: 'Roblox' } : {}), ...(isLive(type) ? { viewers: 128 } : {}) };
+  for (const c of channels) await send(c.id, s, ev, { test: true });
+  return { channels: channels.map((c) => c.name) };
 }
 /** "Go live now": ask the platform first; when it does not know the stream yet, post the channel's live link. */
 export async function goLiveNow(user, platform) {

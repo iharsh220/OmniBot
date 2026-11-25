@@ -104,7 +104,7 @@ export async function kickChannel(uid, acc) {
   const o = (await api(uid, `/channels?slug=${encodeURIComponent(acc.channelSlug)}`)).data?.[0];
   if (!o) return null;
   const start = Date.parse(o.stream?.start_time);
-  return { live: !!o.stream?.is_live, title: o.stream_title || null, start: start > 1e12 ? start : null, image: o.stream?.thumbnail || null, game: o.category?.name || null };
+  return { live: !!o.stream?.is_live, title: o.stream_title || null, start: start > 1e12 ? start : null, image: o.stream?.thumbnail || null, game: o.category?.name || null, viewers: o.stream?.viewer_count ?? null };
 }
 
 // ── Webhooks ──

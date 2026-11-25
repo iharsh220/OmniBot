@@ -68,7 +68,7 @@ export function createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICON
             toggle(s.on, (v) => save({ types: { [t]: { on: v } } }), label)),
           text);
       }),
-      h('p', { class: 'muted tiny dc-foot' }, 'In the message {name} and {title} are filled in. A test pings exactly like the real thing.'));
+      h('p', { class: 'muted tiny dc-foot' }, 'In the message {name} and {title} are filled in. A test pings exactly like the real thing. Live cards update themselves: picture, viewers, and a short report when the stream ends (edits never ping again).'));
   }
 
   function postCard() {
