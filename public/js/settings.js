@@ -121,7 +121,7 @@ export const DEFAULTS = {
   eggsDetails: true, // money / speed
   eggsLocation: true, // location next to each egg (list layout)
   eggsNewMinutes: 5, // highlight eggs younger than this
-  eggsMaxAge: 0, // hide eggs older than X minutes (0 = never)
+  eggsHideAfter: 0, // seconds an egg/event stays on screen (0 = never hidden; was eggsMaxAge in minutes)
   eggsColumns: 4, // board / grouped layout columns
   // ── extra style ──
   borderWidth: 0, // px, 0 = none
@@ -227,7 +227,7 @@ const RANGES = {
   radius: [0, 40], gap: [0, 40], padding: [0, 40], hideAfter: [0, 600], maxMessages: [1, 200],
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
-  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsMaxAge: [0, 1440], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
+  eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsHideAfter: [0, 86400], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
   donateQrSize: [80, 320],
 };
 const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40, donateTitle: 50,
@@ -274,6 +274,8 @@ export function normalizeSettings(obj = {}) {
     const v = validValue(k, obj[k], def);
     if (v !== undefined) s[k] = v;
   }
+  // Widgets saved before "Hide after" had seconds: minutes → seconds.
+  if (!(s.eggsHideAfter > 0) && Number(obj.eggsMaxAge) > 0) s.eggsHideAfter = validValue('eggsHideAfter', Number(obj.eggsMaxAge) * 60, 0) ?? 0;
   return s;
 }
 
@@ -289,6 +291,8 @@ export function decodeSettings(search, base = DEFAULTS) {
     else if (def.startsWith('#')) s[k] = '#' + raw.replace('#', '');
     else s[k] = raw;
   }
+  if (p.has('eggsHideAfter')) delete s.eggsMaxAge;
+  else if (p.has('eggsMaxAge')) { s.eggsHideAfter = 0; s.eggsMaxAge = Number(p.get('eggsMaxAge')); }
   return normalizeSettings(s);
 }
 

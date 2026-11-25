@@ -414,6 +414,7 @@ export class EggsView {
     this.seenEv = new Set();
     this.first = true;
     this.firstEv = true;
+    this.shownAt = new Map(); // id → when it first appeared on THIS overlay ("Hide after" counts from here)
     this.freshUntil = new Map(); // id → time until which it still plays its entry animation
     this.popUntil = 0; // popup mode: visible until
     this.preview = false; // Studio preview ignores popup mode (always visible)
@@ -434,7 +435,7 @@ export class EggsView {
     let n = 0;
     const added = [];
     for (const e of items || []) {
-      if (!this.first && !this.seen.has(e.id)) { this.markFresh(e.id); n++; added.push({ type: 'egg', item: e }); }
+      if (!this.first && !this.seen.has(e.id)) { this.markFresh(e.id); this.markShown(e.id); n++; added.push({ type: 'egg', item: e }); }
       this.seen.add(e.id);
     }
     this.enqueue(added);
@@ -448,7 +449,7 @@ export class EggsView {
     let n = 0;
     const added = [];
     for (const ev of list || []) {
-      if (!this.firstEv && !this.seenEv.has(ev.id)) { this.markFresh(ev.id); n++; added.push({ type: 'event', item: ev }); }
+      if (!this.firstEv && !this.seenEv.has(ev.id)) { this.markFresh(ev.id); this.markShown(ev.id); n++; added.push({ type: 'event', item: ev }); }
       this.seenEv.add(ev.id);
     }
     if (this.s.eggsEvents !== false) this.enqueue(added);
@@ -496,7 +497,7 @@ export class EggsView {
     let cur = this.current;
     if (!cur && (sec <= 0 || this.preview)) cur = this.newest();
     if (sec <= 0 && this.current && this.newest()?.item.id !== this.current.item.id) cur = this.newest();
-    if (!cur) return null;
+    if (!cur || (sec <= 0 && this.isHidden(cur.item))) return null;
     const box = el('div', 'eggs-box egg-alert' + (this.leaving && !this.preview ? ' leaving' : ''));
     if (cur.type === 'egg') box.append(this.hero(cur.item, fresh));
     else {
@@ -506,6 +507,22 @@ export class EggsView {
       box.append(card);
     }
     return box;
+  }
+  markShown(id) {
+    this.shownAt.set(id, Date.now());
+    if (this.shownAt.size > 400) this.shownAt.delete(this.shownAt.keys().next().value);
+  }
+  /** When "Hide after" removes it. Counted from when it appeared here: a spawn is noticed some seconds late, so 3 s after the spawn itself would be over already. */
+  hideAt(x) { return this.s.eggsHideAfter > 0 ? Math.max(x.ts, this.shownAt.get(x.id) || 0) + this.s.eggsHideAfter * 1000 : Infinity; }
+  isHidden(x) { return this.hideAt(x) <= Date.now(); }
+  /** Redraw exactly when the next egg/event has to go. */
+  scheduleHide() {
+    clearTimeout(this.hideTimer);
+    if (!(this.s.eggsHideAfter > 0)) return;
+    const now = Date.now();
+    let next = Infinity;
+    for (const x of [...this.items, ...this.events, ...this.lastSeen]) { const t = this.hideAt(x); if (t > now && t < next) next = t; }
+    if (next < Infinity) this.hideTimer = setTimeout(() => this.render(), Math.min(next - now + 30, 2_000_000_000));
   }
   markFresh(id) { this.freshUntil.set(id, Date.now() + 2500); }
   freshSet() {
@@ -526,7 +543,7 @@ export class EggsView {
   }
   visibleEvents() {
     let list = this.events;
-    if (this.s.eggsMaxAge > 0) list = list.filter((x) => Date.now() - x.ts < this.s.eggsMaxAge * 60_000);
+    if (this.s.eggsHideAfter > 0) list = list.filter((x) => !this.isHidden(x));
     // One card per event name = when it LAST happened (list is newest first). Future event names work the same.
     const names = new Set();
     list = list.filter((x) => { const k = String(x.name || '').toLowerCase(); if (names.has(k)) return false; names.add(k); return true; });
@@ -594,7 +611,7 @@ export class EggsView {
   isNew(e) { return this.s.eggsNewMinutes > 0 && Date.now() - e.ts < this.s.eggsNewMinutes * 60_000; }
   visible() {
     let list = this.items;
-    if (this.s.eggsMaxAge > 0) list = list.filter((e) => Date.now() - e.ts < this.s.eggsMaxAge * 60_000);
+    if (this.s.eggsHideAfter > 0) list = list.filter((e) => !this.isHidden(e));
     return list.slice(0, Math.max(1, this.s.eggsCount));
   }
   ago(e) { const t = el('span', 'egg-ago', eggAgo(e.ts)); t.dataset.ts = e.ts; return t; }
@@ -655,6 +672,7 @@ export class EggsView {
     box.style.transform = `scale(${lo})`;
   }
   draw() {
+    this.scheduleHide();
     const s = this.s;
     const fresh = this.freshSet();
     if (s.eggsLayout === 'alert') { const a = this.alert(fresh); this.root.replaceChildren(...(a ? [a] : [])); return; }
@@ -662,11 +680,15 @@ export class EggsView {
     const list = this.visible();
     const box = el('div', 'eggs-box');
     const showEvents = s.eggsEvents !== false;
+    // With "Hide after" the overlay is empty once everything is gone (Studio keeps the "Waiting" text, so the preview is not just blank).
+    const quiet = s.eggsHideAfter > 0 && !this.preview;
+    const board = s.eggsLayout === 'board' && this.lastSeen.some((x) => !this.isHidden(x));
+    if (quiet && (s.eggsLayout === 'events' || (!list.length && !board)) && !((showEvents || s.eggsLayout === 'events') && this.visibleEvents().length)) { this.root.replaceChildren(); return; }
     if (s.eggsLayout === 'spotlight' || s.eggsLayout === 'events') {
       box.classList.add('egg-spot');
       if (s.eggsLayout === 'spotlight') {
         if (list[0]) box.append(this.hero(list[0], fresh));
-        else box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
+        else if (!quiet) box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
       }
       const ev = showEvents || s.eggsLayout === 'events' ? this.eventsPanel(fresh, { big: s.eggsLayout === 'events' && s.eggsOrient === 'vertical', title: s.eggsLayout === 'events' ? 'Game events' : 'Events' }) : null;
       if (ev) box.append(ev);
@@ -675,9 +697,9 @@ export class EggsView {
       return;
     }
     const evPanel = showEvents ? this.eventsPanel(fresh) : null;
-    if (!list.length && !(s.eggsLayout === 'board' && this.lastSeen.length)) {
+    if (!list.length && !board) {
       if (evPanel) box.append(evPanel);
-      box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
+      if (!quiet) box.append(el('div', 'egg-panel egg-empty', '🥚 Waiting for the next egg…'));
       this.root.replaceChildren(box);
       return;
     }
@@ -721,7 +743,7 @@ export class EggsView {
   board(fresh) {
     const s = this.s;
     let items = [...this.items, ...this.lastSeen].sort((a, b) => b.ts - a.ts);
-    if (s.eggsMaxAge > 0) items = items.filter((e) => Date.now() - e.ts < s.eggsMaxAge * 60_000);
+    if (s.eggsHideAfter > 0) items = items.filter((e) => !this.isHidden(e));
     const pics = new Map(); // name → any known picture (older feed items may not have one)
     for (const e of items) if (e.image && !pics.has(e.name.toLowerCase())) pics.set(e.name.toLowerCase(), e.image);
     const withPic = (e) => (e.image ? e : { ...e, image: pics.get(e.name.toLowerCase()) || null });

@@ -127,6 +127,8 @@ let admin = null;
 const discord = createDiscord({ $, h, ic, api, toast, dialog, ago, fmtTime, ICONS, getPage: () => page });
 const support = createSupport({ $, h, ic, api, toast, ago, fmtTime, getPage: () => page });
 
+const hideLabel = (s) => (!s ? 'Never' : s < 60 ? `${s} seconds` : s < 3600 ? `${+(s / 60).toFixed(1)} minute${s === 60 ? '' : 's'}` : `${+(s / 3600).toFixed(2)} hour${s === 3600 ? '' : 's'}`);
+
 // ═════════════════════════════════════════════════════════════════════
 //  Studio — control schema
 // ═════════════════════════════════════════════════════════════════════
@@ -356,7 +358,8 @@ const GROUPS = [
   ] },
   { tab: 'content', title: 'Freshness', types: ['eggs'], fields: [
     { k: 'eggsNewMinutes', t: 'range', label: 'Highlight new for', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Off' : `${v} min`) },
-    { k: 'eggsMaxAge', t: 'range', label: 'Hide older than', min: 0, max: 720, step: 15, fmt: (v) => (v === 0 ? 'Never' : v < 60 ? `${v} min` : `${(v / 60).toFixed(v % 60 ? 1 : 0)} h`) },
+    { k: 'eggsHideAfter', t: 'select', num: true, label: 'Hide after', hint: 'How long an egg or event stays, counted from when it appears on the overlay. Never = it stays.', fmt: hideLabel,
+      options: [0, 3, 5, 10, 15, 30, 45, 60, 120, 180, 300, 600, 900, 1200, 1800, 2700, 3600, 7200, 10800, 14400, 21600, 43200, 86400].map((v) => [v, hideLabel(v)]) },
   ] },
   { tab: 'layout', title: 'Stats layout', types: ['stats'], fields: [
     { k: 'statsLayout', t: 'seg', label: 'Style', options: [['row', 'Row'], ['column', 'Column'], ['pill', 'Pill']] },
@@ -424,7 +427,9 @@ function control(f) {
       return h('span', { class: 'switch' }, i, h('span'));
     }
     case 'select': {
-      const sel = h('select', { class: 'select', 'aria-label': f.label }, f.options.map(([val, label]) => {
+      // an older saved value that is not in the list stays selectable
+      const list = f.fmt && !f.options.some(([val]) => String(val) === String(v)) ? [...f.options, [v, f.fmt(v)]].sort((a, b) => a[0] - b[0]) : f.options;
+      const sel = h('select', { class: 'select', 'aria-label': f.label }, list.map(([val, label]) => {
         const o = h('option', { value: val }, label);
         if (String(val) === String(v)) o.selected = true;
         return o;

@@ -587,8 +587,9 @@ details.disclose .inner { padding: 0 14px 14px; display: flex; flex-direction: c
 .fld .quick .btn { flex: 1 1 auto; }
 
 /* segmented controls never overflow: equal columns, ellipsis as last resort */
-.seg.full { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; }
-.seg.full button { min-width: 0; justify-content: center; padding: 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* equal widths when the labels fit, otherwise they wrap to the next line (never squeezed or cut off) */
+.seg.full { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; }
+.seg.full button { flex: 1 1 0; min-width: max-content; max-width: 100%; justify-content: center; padding: 7px 10px; white-space: nowrap; }
 
 /* widget header row */
 .wname { min-width: 0; }
