@@ -2,6 +2,7 @@
 // the API when its timers are due, to protect the shared daily quota.
 import { config, BROWSER_UA, tfetch } from './config.js';
 import { getAccessToken, getSystemBotToken } from './auth.js'; // getAccessToken: streamer's own YouTube (reading)
+import { addYtQuota, ytCost } from './quota.js';
 
 const API = 'https://www.googleapis.com/youtube/v3';
 const KNOWN_TYPES = new Set([
@@ -55,6 +56,13 @@ async function yt(ctx, path, params) {
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) url.searchParams.set(k, v);
   const token = await getAccessToken(ctx.uid, 'youtube');
   const r = await tfetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const cost = ytCost(path);
+  if (ctx._quota) {
+    ctx._quota[path === '/liveChat/messages' ? 'chat' : 'other'] += cost;
+    ctx._quota.calls += 1;
+  } else if (ctx.uid) {
+    await addYtQuota(ctx.uid, { [path === '/liveChat/messages' ? 'chat' : 'other']: cost, calls: 1 });
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j.error?.message || `HTTP ${r.status}`), { status: r.status, reason: j.error?.errors?.[0]?.reason });
   return j;
@@ -147,6 +155,7 @@ export const youtubeDue = (st, now) => now >= (st._nextSubsAt || 0)
 export async function youtubeStep(ctx, acc) {
   const st = ctx.st;
   const now = Date.now();
+  ctx._quota = { chat: 0, post: 0, other: 0, calls: 0 };
   Object.assign(st, { connected: true, channelName: st.channelName || acc.channelName, avatar: st.avatar || acc.avatar });
   st.url ||= `https://www.youtube.com/channel/${acc.channelId}`;
   const L = (level, message) => ctx.logs.push({ level, source: 'youtube', message });
@@ -222,29 +231,34 @@ export async function youtubeStep(ctx, acc) {
     st.error = e.reconnect ? e.message : `YouTube: ${e.message}`;
     L(e.reconnect ? 'error' : 'warn', st.error);
     if (e.reconnect) st._nextLiveCheckAt = now + 10 * 60_000;
+  } finally {
+    const q = ctx._quota;
+    delete ctx._quota;
+    if (q?.calls) await addYtQuota(ctx.uid, q);
   }
 }
 
 // ── Discord announcements: one-off calls with a ready access token ──
-async function ytGet(token, path, params) {
+async function ytGet(token, path, params, uid) {
   const url = new URL(API + path);
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) url.searchParams.set(k, v);
   const r = await tfetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (uid) await addYtQuota(uid, { other: ytCost(path), calls: 1 });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j.error?.message || `HTTP ${r.status}`), { status: r.status, reason: j.error?.errors?.[0]?.reason });
   return j;
 }
 /** The streamer's own broadcasts that are live right now (1 quota unit). */
-export async function activeBroadcasts(token) {
-  const j = await ytGet(token, '/liveBroadcasts', { part: 'snippet,status', broadcastStatus: 'active', broadcastType: 'all', maxResults: 10 });
+export async function activeBroadcasts(token, uid) {
+  const j = await ytGet(token, '/liveBroadcasts', { part: 'snippet,status', broadcastStatus: 'active', broadcastType: 'all', maxResults: 10 }, uid);
   return (j.items || []).filter((b) => b.status?.lifeCycleStatus === 'live').map((b) => ({
     id: b.id, title: b.snippet.title, privacy: b.status.privacyStatus, start: Date.parse(b.snippet.actualStartTime) || Date.now(), image: bestThumb(b.snippet),
   }));
 }
 /** Details of some videos (1 unit). width/height come from the player and tell upright videos (Shorts) apart. */
-export async function videosByIds(token, ids) {
+export async function videosByIds(token, ids, uid) {
   if (!ids.length) return [];
-  const j = await ytGet(token, '/videos', { part: 'snippet,status,contentDetails,liveStreamingDetails,player', id: ids.join(','), maxHeight: 720, maxWidth: 1280 });
+  const j = await ytGet(token, '/videos', { part: 'snippet,status,contentDetails,liveStreamingDetails,player', id: ids.join(','), maxHeight: 720, maxWidth: 1280 }, uid);
   return (j.items || []).map((v) => ({
     id: v.id, channelId: v.snippet.channelId, title: v.snippet.title, published: Date.parse(v.snippet.publishedAt) || 0, broadcast: v.snippet.liveBroadcastContent, image: bestThumb(v.snippet),
     privacy: v.status?.privacyStatus, durationIso: v.contentDetails?.duration, wasLive: !!v.liveStreamingDetails, start: Date.parse(v.liveStreamingDetails?.actualStartTime) || Date.now(),
@@ -252,10 +266,10 @@ export async function videosByIds(token, ids) {
   }));
 }
 /** Newest uploads (1 unit; +1 the first time to look up the uploads playlist). */
-export async function uploadIds(token, channelId, playlist) {
-  const list = playlist || (await ytGet(token, '/channels', { part: 'contentDetails', id: channelId })).items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+export async function uploadIds(token, channelId, playlist, uid) {
+  const list = playlist || (await ytGet(token, '/channels', { part: 'contentDetails', id: channelId }, uid)).items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
   if (!list) return { playlist: null, items: [] };
-  const j = await ytGet(token, '/playlistItems', { part: 'contentDetails', playlistId: list, maxResults: 5 });
+  const j = await ytGet(token, '/playlistItems', { part: 'contentDetails', playlistId: list, maxResults: 5 }, uid);
   return { playlist: list, items: (j.items || []).map((x) => ({ id: x.contentDetails.videoId, published: Date.parse(x.contentDetails.videoPublishedAt) || 0 })) };
 }
 
@@ -267,6 +281,7 @@ export async function postChat(uid, liveChatId, text) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ snippet: { liveChatId, type: 'textMessageEvent', textMessageDetails: { messageText: String(text).slice(0, 200) } } }),
   });
+  await addYtQuota(uid, { post: 50, calls: 1 });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
     throw new Error(j.error?.message || `HTTP ${r.status}`);

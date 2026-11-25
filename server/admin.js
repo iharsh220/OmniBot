@@ -12,13 +12,14 @@ import { readFeed } from './eggs.js';
 import { listTickets, readTicket, readShot, setTicketStatus, mailReady } from './support.js';
 import { adminDiscord, userDiscord } from './discord.js';
 import { issue, record, readList, searchList, LIST_MAX, AUDIT_DAYS } from './audit.js';
+import { readYtQuota } from './quota.js';
 
 const DAY = 86_400_000;
 const ACTIVE_MS = 10 * 60_000;
 const str = (v, n = 100) => String(v ?? '').trim().slice(0, n);
 const int = (v, d, max) => Math.min(max, Math.max(0, Math.floor(Number(v)) || d));
 
-function userRow(u, live, seen) {
+function userRow(u, live, seen, quotaUnits = 0) {
   normalizeAccounts(u);
   const now = Date.now();
   // Streams are only checked while a dashboard/overlay is open, so an old "live" flag doesn't count.
@@ -40,6 +41,7 @@ function userRow(u, live, seen) {
     accounts, live: accounts.some((a) => a.live), problem: accounts.some((a) => a.reconnect),
     discord: u.discord?.guildId ? { guildId: u.discord.guildId, server: u.discord.guildName || 'Discord server', enabled: !!u.discord.enabled } : null,
     eggBot: !!u.egg?.enabled, donations: !!u.donate?.enabled, widgets: (u.widgets || []).length, sessions: sessionCount(u), historyDays: u.historyDays ?? 7,
+    quotaToday: quotaUnits,
   };
 }
 
@@ -49,8 +51,9 @@ async function allUsers() {
   if (cache.rows && Date.now() - cache.at < 15_000) return cache.rows;
   cache.pending ||= (async () => {
     const ids = (await db.scan('user/')).map((k) => k.slice('user/'.length));
-    const [users, live, seen] = await Promise.all(['user/', 'live/', 'seen/'].map((p) => db.mget(ids.map((id) => p + id))));
-    return users.map((u, i) => (u ? userRow(u, live[i], seen[i]) : null)).filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const [quota, ...groups] = await Promise.all([readYtQuota(), ...['user/', 'live/', 'seen/'].map((p) => db.mget(ids.map((id) => p + id)))]);
+    const [users, live, seen] = groups;
+    return users.map((u, i) => (u ? userRow(u, live[i], seen[i], quota.users[u.id]?.total || 0) : null)).filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   })();
   try { cache = { at: Date.now(), rows: await cache.pending, pending: null }; } catch (e) { cache.pending = null; throw e; }
   return cache.rows;
@@ -81,7 +84,7 @@ admin.use(ah(async (req, res, next) => {
 
 admin.get('/overview', ah(async (_req, res) => {
   const users = (await allUsers()).filter((u) => !u.isBot);
-  const [system, recent, issues, tickets] = await Promise.all([systemStatus(), readList('audit/all', 0, 12), readList('audit/issues', 0, 400), listTickets()]);
+  const [system, recent, issues, tickets, quota] = await Promise.all([systemStatus(), readList('audit/all', 0, 12), readList('audit/issues', 0, 400), listTickets(), readYtQuota()]);
   const now = Date.now();
   const within = (ts, ms) => !!ts && now - ts < ms;
   const day = issues.filter((x) => within(x.ts, DAY));
@@ -96,7 +99,7 @@ admin.get('/overview', ah(async (_req, res) => {
       errors24h: day.filter((x) => x.kind !== 'login').length, failedLogins24h: day.filter((x) => x.kind === 'login').length,
       openTickets: tickets.filter((t) => t.status === 'open').length,
     },
-    system, recent: await withNames(recent), issues: await withNames(issues.slice(0, 6)),
+    system, quota: { day: quota.day, total: quota.total, limit: quota.limit }, recent: await withNames(recent), issues: await withNames(issues.slice(0, 6)),
     liveNow: users.filter((u) => u.live), keepDays: AUDIT_DAYS,
   });
 }));
@@ -107,14 +110,17 @@ admin.get('/users/:id([\\w-]{6,40})', ah(async (req, res) => {
   const { id } = req.params;
   const u = await db.get(`user/${id}`);
   if (!u) return res.status(404).json({ error: 'User not found (deleted account?)' });
-  const [live, seen, actions, pages, logs, widgets, eggs, issues, discord] = await Promise.all([
+  const [live, seen, actions, pages, logs, widgets, eggs, issues, discord, quota] = await Promise.all([
     db.get(`live/${id}`), db.get(`seen/${id}`), readList(`audit/${id}`, 0, 300), readList(`pages/${id}`, 0, 100), readLogs(id, { limit: 200 }),
     db.mget((u.widgets || []).map((w) => `widget/${w}`)), db.get(`eggs/${id}`),
-    searchList('audit/issues', { max: LIST_MAX.issues, limit: 50, match: (x) => x.uid === id }), userDiscord(u),
+    searchList('audit/issues', { max: LIST_MAX.issues, limit: 50, match: (x) => x.uid === id }), userDiscord(u), readYtQuota(),
   ]);
   const today = new Date().toISOString().slice(0, 10);
+  const qUser = quota.users[id] || { total: 0, chat: 0, post: 0, other: 0, calls: 0 };
   res.json({
-    user: userRow(u, live, seen),
+    user: userRow(u, live, seen, qUser.total),
+    quotaToday: qUser,
+    quotaDay: quota.day,
     ips: (seen?.ips || []).filter((x) => x.last > Date.now() - AUDIT_DAYS * DAY),
     activity: [...actions, ...pages].sort((a, b) => b.ts - a.ts),
     issues: issues.rows,

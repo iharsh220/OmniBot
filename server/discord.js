@@ -491,7 +491,7 @@ export async function checkLive(user, source, { youtube = true, kick = true } = 
   await Promise.all([
     (async () => {
       if (!youtube || !ytAcc(user)) return;
-      const list = (await activeBroadcasts(await ytToken(user))).filter((b) => b.privacy === 'public');
+      const list = (await activeBroadcasts(await ytToken(user), user.id)).filter((b) => b.privacy === 'public');
       out.youtube = list.length > 0;
       if (list[0]) out.yt = { title: list[0].title, image: list[0].image };
       for (const b of list) await announce(user, ytLive(user, b, source));
@@ -558,7 +558,7 @@ export function isShort(v) {
 }
 async function handleVideos(user, ids, source) {
   const s = discordSettings(user);
-  for (const v of await videosByIds(await ytToken(user), ids)) {
+  for (const v of await videosByIds(await ytToken(user), ids, user.id)) {
     if (v.channelId !== ytAcc(user).channelId || v.privacy !== 'public' || v.broadcast === 'upcoming') continue;
     if (v.broadcast === 'live') { await announce(user, ytLive(user, { id: v.id, title: v.title, start: v.start, image: v.image }, source)); continue; }
     v.duration = seconds(v.durationIso);
@@ -643,7 +643,7 @@ export async function cron() {
         await ensurePush(user, D);
         if (now > (last.quotaUntil || 0)) {
           const known = new Set((D.done || []).filter((x) => x.state === 'sent' || x.state === 'skipped').map((x) => x.k.split('@')[0]));
-          const up = await uploadIds(await ytToken(user), ytAcc(user).channelId, last.uploads);
+          const up = await uploadIds(await ytToken(user), ytAcc(user).channelId, last.uploads, user.id);
           last.uploads = up.playlist;
           const fresh = up.items.filter((x) => x.published >= user.discord.since && !known.has(`yt:${x.id}`)).map((x) => x.id);
           if (fresh.length) await handleVideos(user, fresh, 'scheduler');
@@ -737,7 +737,7 @@ export async function sendTest(user, type) {
   try {
     if (y && type !== 'post') {
       const token = await ytToken(user);
-      image = (await videosByIds(token, (await uploadIds(token, y.channelId)).items.slice(0, 1).map((x) => x.id)))[0]?.image || null;
+      image = (await videosByIds(token, (await uploadIds(token, y.channelId, null, user.id)).items.slice(0, 1).map((x) => x.id), user.id))[0]?.image || null;
     }
   } catch { /* the test works without it */ }
   const url = type === 'post' || !acc ? null : type === 'kick' ? `https://kick.com/${encodeURIComponent(acc.channelSlug)}` : `https://www.youtube.com/channel/${acc.channelId}${{ live: '/live', video: '/videos', short: '/shorts' }[type]}`;
@@ -753,7 +753,7 @@ export async function goLiveNow(user, platform) {
   let ev;
   try {
     if (platform === 'kick') { const k = await kickChannel(user.id, acc); if (k?.live) ev = kickLive(user, k, 'button'); } else {
-      const b = (await activeBroadcasts(await ytToken(user))).find((x) => x.privacy === 'public');
+      const b = (await activeBroadcasts(await ytToken(user), user.id)).find((x) => x.privacy === 'public');
       if (b) ev = ytLive(user, b, 'button');
     }
   } catch { /* the plain link still works */ }

@@ -89,7 +89,8 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
         kpi('alert', 'Errors · 24h', t.errors24h, `${t.failedLogins24h} failed sign-in${t.failedLogins24h === 1 ? '' : 's'}`, '#issues'),
         kpi('key', 'Signed in · 24h', t.signedIn24h, 'Different streamers', '#activity'),
         kpi('help', 'Support requests', t.openTickets, 'Waiting for an answer', '#tickets'),
-        kpi('plug', 'Need reconnect', t.problems, 'YouTube or Kick login expired', '#streamers')),
+        kpi('plug', 'Need reconnect', t.problems, 'YouTube or Kick login expired', '#streamers'),
+        kpi('zap', 'YT quota · today', d.quota?.total || 0, `${fmtN(d.quota?.limit || 10000)} limit (${Math.round(((d.quota?.total || 0) / (d.quota?.limit || 10000)) * 100)}%) · resets midnight PT`, '#streamers')),
       h('div', { class: 'grid two', style: 'margin-top:16px' },
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('clock'), h('h3', {}, 'Latest activity'), more('#activity')),
           d.recent.length ? table(HEAD.activity, d.recent.map((r) => actionRow(r))) : empty('clock', 'No activity yet', 'Sign-ins and actions show up here from now on.')),
@@ -112,7 +113,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
 
   // ── Streamers ──
   const FILTERS = [['', 'All'], ['active', 'Active now'], ['live', 'Live'], ['problem', 'Need reconnect'], ['idle', 'Inactive 30d']];
-  const SORTS = [['new', 'Newest account'], ['seen', 'Last active'], ['login', 'Last sign-in'], ['name', 'Name']];
+  const SORTS = [['new', 'Newest account'], ['seen', 'Last active'], ['login', 'Last sign-in'], ['quota', 'YT quota (today)'], ['name', 'Name']];
   const match = {
     '': () => true, active: (u) => u.active, live: (u) => u.live, problem: (u) => u.problem,
     idle: (u) => Date.now() - (u.lastSeenAt || u.lastLoginAt || u.createdAt || 0) > 30 * 86_400_000,
@@ -120,7 +121,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
   function shownUsers() {
     const q = ui.q.toLowerCase();
     const text = (u) => [u.name, u.id, u.ip, place(u.loc), u.device, ...u.accounts.flatMap((a) => [a.channelName, a.channelSlug, a.channelId])].filter(Boolean).join(' ').toLowerCase();
-    const by = { new: (u) => -(u.createdAt || 0), seen: (u) => -(u.lastSeenAt || 0), login: (u) => -(u.lastLoginAt || 0) };
+    const by = { new: (u) => -(u.createdAt || 0), seen: (u) => -(u.lastSeenAt || 0), login: (u) => -(u.lastLoginAt || 0), quota: (u) => -(u.quotaToday || 0) };
     return ui.users.filter((u) => match[ui.filter](u) && (!q || text(u).includes(q)))
       .sort((a, b) => (ui.sort === 'name' ? String(a.name).localeCompare(String(b.name)) : by[ui.sort](a) - by[ui.sort](b)));
   }
@@ -130,9 +131,10 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
     if (!box) return;
     const rows = shownUsers();
     $('#ad-count').textContent = `${rows.length} of ${ui.users.length}`;
-    box.replaceChildren(rows.length ? table(['Streamer', 'Channels', 'Joined', 'Last sign-in', 'Last active', 'From', 'Status'], rows.map((u) => h('tr', { class: 'ad-click', onclick: (e) => { if (!e.target.closest('a')) location.hash = `streamers/${u.id}`; } },
+    box.replaceChildren(rows.length ? table(['Streamer', 'Channels', 'YT Quota', 'Joined', 'Last sign-in', 'Last active', 'From', 'Status'], rows.map((u) => h('tr', { class: 'ad-click', onclick: (e) => { if (!e.target.closest('a')) location.hash = `streamers/${u.id}`; } },
       h('td', {}, h('a', { class: 'ad-person', href: `#streamers/${u.id}` }, avatar(u), h('b', {}, u.name || 'Unnamed'))),
       h('td', {}, u.accounts.map((a) => h('div', { class: 'ad-chan' }, plat(a.provider), a.channelName))),
+      h('td', { class: 'ad-nowrap' }, u.quotaToday ? h('b', {}, fmtN(u.quotaToday)) : h('span', { class: 'muted' }, '—')),
       h('td', { class: 'ad-nowrap' }, fullTime(u.createdAt)),
       h('td', { class: 'ad-nowrap' }, u.lastLoginAt ? [when(u.lastLoginAt), h('span', { class: 'ad-detail' }, `${u.loginCount} sign-in${u.loginCount === 1 ? '' : 's'}`)] : h('span', { class: 'muted' }, 'Not recorded yet')),
       h('td', { class: 'ad-nowrap' }, when(u.lastSeenAt)),
@@ -143,8 +145,8 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
     const search = h('div', { class: 'input-icon search' }, ic('search'), h('input', { class: 'input', type: 'search', placeholder: 'Name, channel, IP, city…', value: ui.q, maxlength: 100, 'aria-label': 'Search streamers', oninput: (e) => { ui.q = e.target.value; fillUsers(); } }));
     const seg = h('div', { class: 'seg' }, FILTERS.map(([v, l]) => h('button', { type: 'button', class: v === ui.filter ? 'on' : '', onclick: () => { ui.filter = v; renderUsers(); } }, l)));
     const sort = h('select', { class: 'select', style: 'width:auto', 'aria-label': 'Sort by', onchange: (e) => { ui.sort = e.target.value; fillUsers(); } }, SORTS.map(([v, l]) => h('option', { value: v, selected: v === ui.sort }, l)));
-    const csv = () => exportCsv('omnichat-streamers', ['name', 'user id', 'channels', 'joined', 'last sign-in', 'sign-ins', 'last active', 'ip', 'location', 'device', 'egg bot', 'widgets'], shownUsers().map((u) => [u.name, u.id,
-      u.accounts.map((a) => `${PLATFORM[a.provider]}: ${a.channelName} (${a.channelId})`).join(' | '), ...[u.createdAt, u.lastLoginAt].map((x) => (x ? new Date(x).toISOString() : '')), u.loginCount,
+    const csv = () => exportCsv('omnichat-streamers', ['name', 'user id', 'channels', 'yt quota today', 'joined', 'last sign-in', 'sign-ins', 'last active', 'ip', 'location', 'device', 'egg bot', 'widgets'], shownUsers().map((u) => [u.name, u.id,
+      u.accounts.map((a) => `${PLATFORM[a.provider]}: ${a.channelName} (${a.channelId})`).join(' | '), u.quotaToday || 0, ...[u.createdAt, u.lastLoginAt].map((x) => (x ? new Date(x).toISOString() : '')), u.loginCount,
       u.lastSeenAt ? new Date(u.lastSeenAt).toISOString() : '', u.ip || '', place(u.loc) || '', u.device || '', u.eggBot ? 'ON' : 'OFF', u.widgets]));
     $('#page-streamers').replaceChildren(h('div', { class: 'card' },
       h('div', { class: 'logbar' }, search, seg, sort, h('div', { class: 'spacer' }), h('span', { class: 'tiny muted', id: 'ad-count' }), h('button', { class: 'btn sm', type: 'button', onclick: csv }, ic('download'), 'Export CSV')),
@@ -185,6 +187,7 @@ export function createAdmin({ $, h, ic, api, toast, ago, fmtN, fmtTime, exportCs
           h('div', { class: 'ad-facts' }, fact('Joined', fullTime(u.createdAt)), fact('Last sign-in', u.lastLoginAt ? `${fullTime(u.lastLoginAt)} (${u.loginCount} total)` : 'Not recorded yet'),
             fact('Last active', fullTime(u.lastSeenAt)), fact('Overlay last used', fullTime(u.overlayAt)), fact('Last IP', u.ip), fact('Location', place(u.loc)), fact('Device', u.device),
             fact('Signed-in devices', u.sessions), fact('Egg Bot', u.eggBot ? `ON · ${d.eggPostsToday} YouTube posts today` : 'OFF'), fact('Commands / timers', `${d.tools.commands} / ${d.tools.timers}`),
+            fact('YT quota (today)', d.quotaToday?.total ? `${fmtN(d.quotaToday.total)} units (chat ${fmtN(d.quotaToday.chat)} · post ${fmtN(d.quotaToday.post)} · other ${fmtN(d.quotaToday.other)} · ${fmtN(d.quotaToday.calls)} calls)` : '0 units'),
             fact('Donations page', u.donations ? 'ON' : 'OFF'), fact('Chat history', u.historyDays ? `${u.historyDays} days` : 'Off'))),
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, ic('plug'), h('h3', {}, 'Channels')),
           u.accounts.length ? u.accounts.map((a) => h('div', { class: 'srow' }, avatar({ name: a.channelName, avatar: a.avatar }), h('div', { class: 'txt' },
