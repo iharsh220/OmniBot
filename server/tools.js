@@ -26,7 +26,7 @@ export async function clearHighlight(uid) {
 }
 
 // ── Alert numbers: "#3 this stream" per kind (Super Chats, members, subs, follows …) ──
-const COUNT_KIND = { donation: 'donation', superchat: 'superchat', sticker: 'superchat', member: 'member', milestone: 'member', gift: 'gift', sub: 'sub', follow: 'follow', greeting: 'greeting' };
+const COUNT_KIND = { donation: 'donation', ytsub: 'ytsub', superchat: 'superchat', sticker: 'sticker', jewels: 'jewels', member: 'member', milestone: 'member', gift: 'gift', sub: 'sub', kicks: 'kicks', follow: 'follow', greeting: 'greeting' };
 /** Adds `n` (number of that kind this stream) to alert messages. Counts reset after 4 h without alerts. */
 export async function numberAlerts(uid, chats) {
   const list = (chats || []).filter((m) => COUNT_KIND[m.alert]);
@@ -50,10 +50,14 @@ export async function numberAlerts(uid, chats) {
 
 /** "Send to OBS": a fake alert of one kind, straight into the live stream (marked as a test). */
 const TEST = {
+  ytsub: { kind: 'sub', eventText: 'Subscribed!' },
   superchat: { kind: 'superchat', amount: '₹500.00', text: 'This is a test Super Chat 🎉' },
+  sticker: { kind: 'superchat', amount: '₹150.00', eventText: 'Super Sticker' },
+  jewels: { kind: 'superchat', amount: '500 Jewels', eventText: 'Jewels Gift 💎' },
   member: { kind: 'member', eventText: 'New member!' },
   gift: { kind: 'member', eventText: 'Gifted 5 memberships' },
   sub: { kind: 'sub', platform: 'kick', eventText: 'Resubscribed (3 months)!' },
+  kicks: { kind: 'superchat', platform: 'kick', amount: '500 Kicks', eventText: 'Sent Kicks!', text: 'GGs!' },
   follow: { kind: 'follow', platform: 'kick', eventText: 'Followed!' },
   greeting: { kind: 'greeting', eventText: '👋 said hi' },
   highlight: { kind: 'highlight', text: 'This is how a highlighted chat message looks' },
