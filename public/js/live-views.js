@@ -97,14 +97,15 @@ export function playAlertSound(s, type) {
   if (!K || !s.alertSound) return;
   const choice = s[`alert${K}Sound`] || 'default';
   if (choice === 'none') return;
+  const vol = Math.max(0, Math.min(100, Math.round((s.alertVolume ?? 60) * ((s[`alert${K}Volume`] ?? 100) / 100))));
   if (choice === 'custom') {
     const url = mediaUrl(s[`alert${K}SoundUrl`]);
     if (url) {
-      try { const a = new Audio(url); a.volume = Math.max(0, Math.min(1, s.alertVolume / 100)); a.play().catch(() => synth(DEFAULT_SOUND[K], s.alertVolume)); } catch { /* ignore */ }
+      try { const a = new Audio(url); a.volume = vol / 100; a.play().catch(() => synth(DEFAULT_SOUND[K], vol)); } catch { /* ignore */ }
       return;
     }
   }
-  synth(choice === 'default' || choice === 'custom' ? DEFAULT_SOUND[K] : choice, s.alertVolume);
+  synth(choice === 'default' || choice === 'custom' ? DEFAULT_SOUND[K] : choice, vol);
 }
 
 /** A fake alert of one type (Studio "Test" buttons). */

@@ -185,6 +185,7 @@ const ALERT_EDIT_GROUP = { tab: 'content', title: 'Customize an alert', types: [
       { k: `alert${K}Text`, t: 'text', label: 'Text on the alert', placeholder: text, show: on, hint: 'Variables: {name} {amount} {event} {count} {platform}' },
       { k: `alert${K}Sound`, t: 'select', label: 'Sound', show: on, options: SOUND_OPTIONS, rebuild: true },
       { k: `alert${K}SoundUrl`, t: 'upload', accept: 'audio/*', kind: 'audio', label: 'Your sound file', show: (s) => on(s) && s[`alert${K}Sound`] === 'custom', hint: 'MP3, OGG, WAV or M4A · up to 3 MB · short sounds work best' },
+      { k: `alert${K}Volume`, t: 'range', label: 'Sound volume', min: 0, max: 100, unit: '%', show: (s) => on(s) && s[`alert${K}Sound`] !== 'none' },
       { t: 'action', icon: 'volume', label: 'Play sound', show: (s) => on(s) && s[`alert${K}Sound`] !== 'none', run: () => playAlertSound({ ...settings, alertSound: true }, typeOfKind(K)) },
       { k: `alert${K}Image`, t: 'upload', accept: 'image/png,image/jpeg,image/gif,image/webp', kind: 'image', label: 'Your picture / GIF (optional)', show: on, hint: 'Shown instead of the viewer’s avatar · PNG, JPG, GIF, WebP · up to 3 MB' },
       { t: 'action', icon: 'play', label: 'Test this alert (preview + OBS)', show: on, run: () => sendTestToObs(typeOfKind(K)) },
@@ -292,7 +293,7 @@ const GROUPS = [
     { k: 'eggsLayout', t: 'select', label: 'Layout', options: [['alert', 'Alert — new egg / event pops up'], ['board', 'Stock board (by rarity)'], ['spotlight', 'Last spawn + events (alert card)'], ['events', 'Events only'], ['list', 'One list'], ['grouped', 'By location']] },
     { k: 'eggsOrient', t: 'seg', label: 'Stream', options: [['horizontal', 'Horizontal 16:9'], ['vertical', 'Vertical 9:16']], show: (s) => ['alert', 'spotlight', 'events'].includes(s.eggsLayout), hint: 'Vertical = YouTube Shorts / Kick mobile live' },
     { k: 'eggsPopup', t: 'range', label: 'Show each for', min: 0, max: 120, step: 1, show: (s) => s.eggsLayout === 'alert', fmt: (v) => (v === 0 ? 'Always (latest stays)' : `${v} s, then hide`), hint: 'Several at once (e.g. an event + 2 eggs) show one after another' },
-    { k: 'eggsPopup', t: 'range', label: 'Pop up', min: 0, max: 120, step: 5, show: (s) => ['spotlight', 'events'].includes(s.eggsLayout), fmt: (v) => (v === 0 ? 'Always visible' : `${v} s per spawn`), hint: 'Shows only when a new egg / event arrives, then hides (the preview stays visible)' },
+    { k: 'eggsPopup', t: 'range', label: 'Alert duration', min: 0, max: 120, step: 5, show: (s) => ['spotlight', 'events', 'alert'].includes(s.eggsLayout), fmt: (v) => (v === 0 ? 'Always visible' : `${v} s`), hint: 'How long each new egg / event alert stays on screen before hiding' },
     { k: 'eggsFit', t: 'toggle', label: 'Fit to screen', show: (s) => s.eggsLayout !== 'alert', hint: 'OBS: everything (events, Secret, Eternal, Divine …) always fits the source, at any resolution' },
     { k: 'eggsColumns', t: 'range', label: 'Columns', min: 1, max: 6, show: (s) => ['board', 'grouped'].includes(s.eggsLayout), hint: 'Tiles / panels per row (Fit to screen adds columns on wide screens)' },
   ] },
@@ -305,7 +306,7 @@ const GROUPS = [
     { k: 'eggsDetails', t: 'toggle', label: 'Money & speed' },
   ] },
   { tab: 'layout', title: 'On screen', types: ['alerts'], fields: [
-    { k: 'eggsPopup', t: 'range', label: 'Time on screen', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Always (latest stays)' : `${v} s, then hide`), hint: 'Each alert stays this long, then hides. Several at once show one after another' },
+    { k: 'eggsPopup', t: 'range', label: 'Alert duration', min: 0, max: 60, fmt: (v) => (v === 0 ? 'Always (latest stays)' : `${v} s, then hide`), hint: 'Each alert stays this long, then hides. Several at once show one after another' },
     { k: 'fontSize', t: 'range', label: 'Text size', min: 10, max: 48, unit: 'px', hint: 'Makes the whole alert bigger or smaller' },
   ] },
   { tab: 'layout', title: 'Alert look', types: ['eggs', 'alerts'], fields: [

@@ -14,7 +14,7 @@ export const ALERT_KINDS = [
 ];
 export const ALERT_SOUNDS = ['default', 'chime', 'coin', 'fanfare', 'pop', 'sparkle', 'bell', 'levelup', 'whoosh', 'cash', 'airhorn', 'drumroll', 'laser', 'magic', 'notify', 'tada', 'bubble', 'powerup', 'heartbeat', 'none', 'custom'];
 const alertKindDefaults = () => Object.fromEntries(ALERT_KINDS.flatMap(([k, text]) => [
-  [`alert${k}Text`, text], [`alert${k}Sound`, 'default'], [`alert${k}SoundUrl`, ''], [`alert${k}Image`, ''],
+  [`alert${k}Text`, text], [`alert${k}Sound`, 'default'], [`alert${k}SoundUrl`, ''], [`alert${k}Volume`, 100], [`alert${k}Image`, ''],
 ]));
 
 export const DEFAULTS = {
@@ -239,6 +239,7 @@ const RANGES = {
   borderWidth: [0, 8], borderOpacity: [0, 100], lineHeight: [100, 220], nameWeight: [400, 900], avatarSize: [50, 220],
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
   eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsHideAfter: [0, 86400], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
+  ...Object.fromEntries(ALERT_KINDS.map(([k]) => [`alert${k}Volume`, [0, 100]])),
   donateQrSize: [80, 320],
   donateTitleSize: [70, 260],
   donateTitleWeight: [400, 900],
