@@ -735,6 +735,7 @@ const eggsView = new EggsView($('#eggs-preview'), settings);
 eggsView.preview = true; // popup mode would hide the Studio preview
 const alertsView = new AlertsView($('#alerts-preview'), settings);
 alertsView.preview = true;
+alertsView.muted = localStorage.getItem('omnichat:alert-mute') === '1';
 const goalView = new GoalView($('#goal-preview'), settings);
 const pollView = new PollView($('#poll-preview'), settings);
 const donateView = new DonateView($('#donate-preview'), settings);
@@ -754,10 +755,22 @@ function renderTestBar() {
   if (bar.hidden) return;
   const sel = h('select', { class: 'select', id: 'test-kind', 'aria-label': 'Alert to test' }, TEST_BUTTONS.map(([t, label]) => h('option', { value: t }, label)));
   sel.value = typeOfKind(editKind);
+  const muteBtn = h('button', {
+    type: 'button',
+    class: `btn sm${alertsView.muted ? ' danger' : ''}`,
+    'aria-pressed': String(alertsView.muted),
+    title: 'Mute alert sound in browser preview (OBS will still play sound)',
+    onclick: () => {
+      alertsView.muted = !alertsView.muted;
+      localStorage.setItem('omnichat:alert-mute', alertsView.muted ? '1' : '0');
+      renderTestBar();
+    },
+  }, ic(alertsView.muted ? 'volumeX' : 'volume'), alertsView.muted ? 'Muted' : 'Mute');
   bar.replaceChildren(
     h('b', { class: 'tiny' }, 'Test alert'), sel,
     h('button', { type: 'button', class: 'btn sm', onclick: () => testAlert(sel.value) }, ic('play'), 'Preview here'),
     h('button', { type: 'button', class: 'btn sm primary', onclick: () => sendTestToObs(sel.value) }, ic('radio'), 'Send to OBS'),
+    muteBtn,
     h('span', { class: 'muted tiny' }, 'OBS: the widget URL must be open (OBS or a browser tab).'));
 }
 async function sendTestToObs(type) {

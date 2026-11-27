@@ -136,6 +136,7 @@ export class AlertsView {
     this.until = 0;
     this.leaving = false;
     this.preview = false; // Studio: no automatic sound, never empty
+    this.muted = false; // Studio: mute browser preview sound (OBS still plays)
     this.last = null; // newest alert seen (preview / "always visible")
     this.setSettings(settings);
   }
@@ -186,7 +187,7 @@ export class AlertsView {
       this.current = next;
       this.leaving = false;
       this.fresh = next.id;
-      if (!this.preview || next.forceSound) playAlertSound(this.s, alertType(next));
+      if ((!this.preview || next.forceSound) && !this.muted) playAlertSound(this.s, alertType(next));
       clearTimeout(this.timer);
       if (sec > 0) {
         this.until = Date.now() + sec * 1000;
