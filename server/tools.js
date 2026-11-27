@@ -166,7 +166,7 @@ export async function processChats(uid, user, chats) {
     if (D.day !== today()) { D.day = today(); D.yt = 0; }
     for (const { c, m } of hits) {
       const key = `${m.platform}:${c.cmd}`;
-      if (Date.now() - (D.cool[key] || 0) < 20_000) continue; // 20 s cooldown per command per platform
+      if (Date.now() - (D.cool[key] || 0) < 8_000) continue; // 8 s cooldown per command per platform
       if (m.platform === 'youtube' && D.yt >= YT_DAILY) continue;
       D.cool[key] = Date.now();
       if (m.platform === 'youtube') D.yt += 1;

@@ -102,6 +102,12 @@ export const DEFAULTS = {
   goalNumbers: true,
   // ── donate widget (UPI QR on stream) ──
   donateTitle: 'Support the stream 💜',
+  donateTitleColor: '#f4f6fb',
+  donateTitleFont: 'inherit', // inherit | any FONTS key
+  donateTitleSize: 125, // 70 - 260 %
+  donateTitleWeight: 800, // 400 - 900
+  donateShowBg: true,
+  donateShowBorder: true,
   donateShowTitle: true,
   donateShowSub: true,
   donateShowUpi: true,
@@ -221,6 +227,7 @@ const ENUMS = {
   donateQr: ['page', 'upi'],
   donateUpiPos: ['side', 'below-qr'],
   donateLayout: ['card', 'qr-only', 'stacked'],
+  donateTitleFont: ['inherit', ...Object.keys(FONTS)],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
@@ -229,6 +236,8 @@ const RANGES = {
   maxWidth: [30, 100], emoteSize: [80, 400], minLength: [0, 100], maxLength: [0, 500], statsNumSize: [60, 250],
   eggsCount: [1, 50], eggsTiles: [1, 80], eggsNewMinutes: [0, 120], eggsHideAfter: [0, 86400], eggsColumns: [1, 6], eggsEventsCount: [1, 10], eggsPopup: [0, 300], alertVolume: [0, 100], goalTarget: [1, 100000000],
   donateQrSize: [80, 320],
+  donateTitleSize: [70, 260],
+  donateTitleWeight: [400, 900],
 };
 const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40, donateTitle: 50,
   ...Object.fromEntries(ALERT_KINDS.flatMap(([k]) => [[`alert${k}Text`, 80], [`alert${k}SoundUrl`, 400], [`alert${k}Image`, 400]])),
@@ -343,6 +352,10 @@ export function applyRoot(el, s, kind) {
     '--stat-num': s.statsNumSize / 100,
     '--egg-cols': s.eggsColumns,
     '--dqr-size': `${s.donateQrSize || 150}px`,
+    '--dtitle-c': s.donateTitleColor || s.textColor,
+    '--dtitle-size': (s.donateTitleSize || 125) / 100,
+    '--dtitle-w': s.donateTitleWeight || 800,
+    '--dtitle-font': s.donateTitleFont && s.donateTitleFont !== 'inherit' && FONTS[s.donateTitleFont] ? FONTS[s.donateTitleFont] : 'inherit',
   };
   for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
 }

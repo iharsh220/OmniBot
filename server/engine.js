@@ -56,19 +56,45 @@ export async function tick(user) {
     states[p] = acc ? st : blankPlatform();
   }
 
+  const yt = states.youtube;
+  const ytChats = chats.filter((m) => m.platform === 'youtube');
+  const needsBot = eggsDue || commands.length || ytChats.length || (user.tools?.timers?.length > 0);
+  const sharedBot = needsBot ? await getSystemBot() : null;
+  const kickBotOk = needsBot ? await kickBotReady() : false;
+  const botTargets = {
+    youtube: !!user.accounts?.youtube && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
+    kick: !!user.accounts?.kick && !!states.kick.live && kickBotOk,
+  };
+  const sendPost = async (p, source) => {
+    try {
+      if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
+      else await postKickChat(user.accounts.kick.channelId, p.text);
+      return true;
+    } catch (e) { logs.push({ level: 'warn', source, message: `${p.to} chat post failed: ${e.message}` }); return false; }
+  };
+
+  // Live tools: reply to chat commands (!dc, etc.) immediately before Discord/Egg/timer work.
+  try {
+    if (ytChats.length) {
+      const cmdPosts = (await processChats(uid, user, ytChats)).filter((p) => botTargets[p.to]);
+      if (cmdPosts.length) {
+        await Promise.all(cmdPosts.map(async (p) => {
+          if (await sendPost(p, 'bot')) logs.push({ level: 'info', source: 'bot', message: `${p.cmd} → ${p.to}` });
+        }));
+      }
+    }
+  } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `Commands: ${e.message}` }); }
+
   await announceFromTick(user, states); // Discord: a stream just went live
 
   // Egg Bot: Discord → history → YouTube chat (announcements + !egghistory replies)
   const eggState = { ...(live.eggs || {}) };
   if (eggsDue || commands.length) {
-    const yt = states.youtube;
     const es = user.egg || {};
-    const sharedBot = await getSystemBot();
-    const kickBotOk = await kickBotReady();
     const targets = {
       // Only platforms the streamer has connected can ever be posted to.
-      youtube: !!user.accounts?.youtube && es.youtube !== false && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
-      kick: !!user.accounts?.kick && es.kick !== false && !!states.kick.live && kickBotOk,
+      youtube: botTargets.youtube && es.youtube !== false,
+      kick: botTargets.kick && es.kick !== false,
     };
     try {
       eggState._nextAt = Date.now() + config.eggs.pollMs;
@@ -76,11 +102,7 @@ export async function tick(user) {
       logs.push(...r.logs);
       const sent = { youtube: 0, kick: 0 };
       for (const p of r.posts) {
-        try {
-          if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
-          else await postKickChat(user.accounts.kick.channelId, p.text);
-          sent[p.to] += 1;
-        } catch (e) { logs.push({ level: 'warn', source: 'eggs', message: `${p.to} chat post failed: ${e.message}` }); }
+        if (await sendPost(p, 'eggs')) sent[p.to] += 1;
       }
       if (sent.youtube || sent.kick) logs.push({ level: 'info', source: 'eggs', message: `Egg Bot posted — YouTube: ${sent.youtube}, Kick: ${sent.kick}` });
     } catch (e) {
@@ -89,25 +111,13 @@ export async function tick(user) {
     }
   }
 
-  // Live tools: poll votes + custom command replies (YouTube chat) and timers, posted by the shared bots.
+  // Scheduled chat timers
   try {
-    const yt = states.youtube;
-    const sharedBot = await getSystemBot();
-    const botTargets = {
-      youtube: !!user.accounts?.youtube && !!(yt.live && yt._chatId) && youtubeBotReady(user, sharedBot),
-      kick: !!user.accounts?.kick && !!states.kick.live && await kickBotReady(),
-    };
-    const ytChats = chats.filter((m) => m.platform === 'youtube');
-    const posts = [...(await processChats(uid, user, ytChats)), ...(await timerPosts(uid, user, botTargets))];
-    for (const p of posts) {
+    for (const p of await timerPosts(uid, user, botTargets)) {
       if (!botTargets[p.to]) continue;
-      try {
-        if (p.to === 'youtube') await postChat(uid, yt._chatId, p.text);
-        else await postKickChat(user.accounts.kick.channelId, p.text);
-        logs.push({ level: 'info', source: 'bot', message: `${p.timer ? 'Timer' : p.cmd} → ${p.to}` });
-      } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `${p.to} chat post failed: ${e.message}` }); }
+      if (await sendPost(p, 'bot')) logs.push({ level: 'info', source: 'bot', message: `Timer → ${p.to}` });
     }
-  } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `Commands/timers: ${e.message}` }); }
+  } catch (e) { logs.push({ level: 'warn', source: 'bot', message: `Timers: ${e.message}` }); }
 
   // Stream session (for the summary): start time + peak viewers; resets after 30 min offline.
   const anyLive = states.youtube.live || states.kick.live;

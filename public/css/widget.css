@@ -612,11 +612,14 @@
   color: var(--text);
   border-radius: var(--radius);
   padding: calc(var(--pad) * 1.1);
-  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border: var(--border-w, 1.5px) solid var(--border-c, color-mix(in srgb, var(--accent) 55%, transparent));
   transition: all .2s ease;
   max-width: fit-content;
 }
 .has-shadow .oc-donate { box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.oc-donate.no-bg { background: transparent !important; box-shadow: none !important; }
+.oc-donate.no-border { border: 0 !important; }
+.has-stroke .oc-donate { text-shadow: -1px -1px 0 rgba(0,0,0,.85), 1px -1px 0 rgba(0,0,0,.85), -1px 1px 0 rgba(0,0,0,.85), 1px 1px 0 rgba(0,0,0,.85); }
 
 /* QR wrapper & image */
 .oc-dqr-wrap {
@@ -639,7 +642,13 @@
 
 /* Text details */
 .oc-dtext { display: flex; flex-direction: column; gap: .25em; min-width: 0; }
-.oc-dtitle { font-size: 1.25em; font-weight: var(--name-w, 800); line-height: 1.15; }
+.oc-dtitle {
+  font-family: var(--dtitle-font, inherit);
+  font-size: calc(var(--dtitle-size, 1.25) * 1em);
+  font-weight: var(--dtitle-w, 800);
+  color: var(--dtitle-c, var(--text));
+  line-height: 1.15;
+}
 .oc-dsub { opacity: .75; font-size: .9em; }
 .oc-dupi { font-weight: 800; color: var(--accent); overflow-wrap: anywhere; }
 .oc-dupi.oc-dupi-below {

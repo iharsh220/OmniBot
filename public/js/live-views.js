@@ -379,7 +379,7 @@ export class DonateView {
     }
 
     const d = this.d;
-    const card = el('div', `oc-donate layout-${layout}`);
+    const card = el('div', `oc-donate layout-${layout}${s.donateShowBg === false ? ' no-bg' : ''}${s.donateShowBorder === false || s.borderWidth === 0 ? ' no-border' : ''}`);
     if (!d) {
       card.append(el('div', 'oc-dtext', el('b', '', 'Donations are off')));
       card.querySelector('.oc-dtext').append(el('span', '', 'Turn them on in Live tools → Donations'));

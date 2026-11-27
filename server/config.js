@@ -14,7 +14,7 @@ export const config = {
   google: { get clientId() { return e.GOOGLE_CLIENT_ID; }, get clientSecret() { return e.GOOGLE_CLIENT_SECRET; } },
   kick: { get clientId() { return e.KICK_CLIENT_ID; }, get clientSecret() { return e.KICK_CLIENT_SECRET; } },
   youtube: {
-    get minPollMs() { return num(e.YT_CHAT_MIN_POLL_MS, 8000); },
+    get minPollMs() { return num(e.YT_CHAT_MIN_POLL_MS, 3000); },
     get offlineCheckMs() { return num(e.YT_OFFLINE_CHECK_MS, 60000); },
   },
   get kickStatsMs() { return num(e.KICK_STATS_POLL_MS, 30000); },

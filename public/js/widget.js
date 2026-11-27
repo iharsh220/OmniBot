@@ -85,7 +85,7 @@ async function main() {
     onDelete: (mid) => view.remove?.(mid),
     onState: (st) => view.setState?.(st),
     onSettings: ({ settings }) => view.setSettings(settingsFor({ ...DEFAULTS, ...settings })),
-  }, { v: version, interval: type === 'stats' ? 10_000 : 4_000 });
+  }, { v: version, interval: type === 'stats' ? 10_000 : 2_000 });
 }
 // Inside OBS (Browser source): when "Start Streaming" is pressed, ask the server to look for the new stream right away,
 // so the Discord announcement does not wait for the next check. Does nothing in a normal browser.
