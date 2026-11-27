@@ -310,6 +310,9 @@ const GROUPS = [
   ] },
   { tab: 'layout', title: 'Alert look', types: ['eggs', 'alerts'], fields: [
     { k: 'eggsAlertStyle', t: 'select', label: 'Style', show: isAlert, options: [['card', 'Card (glowing)'], ['banner', 'Banner (slim bar)'], ['toast', 'Toast (compact pill)'], ['neon', 'Neon'], ['glass', 'Glass'], ['minimal', 'Minimal (no background)'], ['big', 'Big (centered)']] },
+    { k: 'alertLayout', t: 'seg', label: 'Icon & text layout', show: isAlert, options: [['side', 'Side by side'], ['icon-top', 'Icon top, text below'], ['text-top', 'Text top, icon below']] },
+    { k: 'alertIconSize', t: 'range', label: 'Icon / image size', show: isAlert, min: 50, max: 300, step: 10, unit: '%' },
+    { k: 'alertShowBg', t: 'toggle', label: 'Show card background', show: isAlert, hint: 'Turn off for only transparent image + details on stream' },
     { k: 'eggsAlertPos', t: 'seg', label: 'Position', show: isAlert, options: [['top', 'Top'], ['center', 'Center'], ['bottom', 'Bottom']] },
     { k: 'animation', t: 'select', label: 'Entry animation', show: isAlert, options: ANIM_OPTIONS },
     { k: 'animSpeed', t: 'seg', label: 'Speed', show: isAlert, options: [['fast', 'Fast'], ['normal', 'Normal'], ['slow', 'Slow']] },

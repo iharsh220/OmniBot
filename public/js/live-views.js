@@ -234,7 +234,8 @@ export class AlertsView {
       }
       if (text.childNodes.length) body.append(text);
     }
-    card.append(pic, body);
+    if (this.s.alertLayout === 'text-top') card.append(body, pic);
+    else card.append(pic, body);
     return card;
   }
   render() {

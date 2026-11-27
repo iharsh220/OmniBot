@@ -92,6 +92,9 @@ export const DEFAULTS = {
   alertSound: true, // short chime when an alert appears
   alertVolume: 60,
   alertCount: true, // "#3 this stream" badge on Super Chats, members, subs, follows …
+  alertLayout: 'side', // side | icon-top | text-top
+  alertIconSize: 100, // 50 - 300 %
+  alertShowBg: true, // show alert card background / border / shadow
   ...alertKindDefaults(),
   // ── goal widget ──
   goalType: 'youtube-subs', // youtube-subs | kick-followers | combined
@@ -228,6 +231,7 @@ const ENUMS = {
   donateUpiPos: ['side', 'below-qr'],
   donateLayout: ['card', 'qr-only', 'stacked'],
   donateTitleFont: ['inherit', ...Object.keys(FONTS)],
+  alertLayout: ['side', 'icon-top', 'text-top'],
 };
 const RANGES = {
   fontSize: [8, 60], fontWeight: [100, 900], msgBgOpacity: [0, 100], pageBgOpacity: [0, 100],
@@ -238,6 +242,7 @@ const RANGES = {
   donateQrSize: [80, 320],
   donateTitleSize: [70, 260],
   donateTitleWeight: [400, 900],
+  alertIconSize: [50, 300],
 };
 const MAX_TEXT = { hideBots: 500, blockedWords: 500, statsViewersText: 30, statsSubsText: 30, statsTotalText: 30, eggsTitle: 40, eggsEggLabel: 40, eggsEventLabel: 24, goalTitle: 40, donateTitle: 50,
   ...Object.fromEntries(ALERT_KINDS.flatMap(([k]) => [[`alert${k}Text`, 80], [`alert${k}SoundUrl`, 400], [`alert${k}Image`, 400]])),
@@ -328,7 +333,7 @@ export function applyRoot(el, s, kind) {
   el.className = [
     'ow-root', `ow-${kind}`, `theme-${s.theme}`, `anim-${s.animation}`, `speed-${s.animSpeed}`, `dir-${s.direction}`,
     `stats-${s.statsLayout}`, s.shadow ? 'has-shadow' : '', s.stroke ? 'has-stroke' : '',
-    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, `alert-${s.eggsAlertStyle}`, `alert-pos-${s.eggsAlertPos}`, `goal-${s.goalStyle}`, `donate-${s.donateLayout || 'card'}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
+    `av-${s.avatarShape}`, `align-${s.align}`, `stats-align-${s.statsAlign}`, `eggs-${s.eggsLayout}`, `eggs-${s.eggsOrient}`, `alert-${s.eggsAlertStyle}`, `alert-pos-${s.eggsAlertPos}`, `alert-layout-${s.alertLayout || 'side'}`, s.alertShowBg === false ? 'alert-nobg' : '', `goal-${s.goalStyle}`, `donate-${s.donateLayout || 'card'}`, s.compact ? 'compact' : '', s.borderWidth > 0 ? 'has-border' : '',
   ].filter(Boolean).join(' ');
   const vars = {
     '--font': `'${s.font}', system-ui, sans-serif`,
@@ -356,6 +361,7 @@ export function applyRoot(el, s, kind) {
     '--dtitle-size': (s.donateTitleSize || 125) / 100,
     '--dtitle-w': s.donateTitleWeight || 800,
     '--dtitle-font': s.donateTitleFont && s.donateTitleFont !== 'inherit' && FONTS[s.donateTitleFont] ? FONTS[s.donateTitleFont] : 'inherit',
+    '--alert-icon': (s.alertIconSize || 100) / 100,
   };
   for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
 }

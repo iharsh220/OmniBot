@@ -546,7 +546,43 @@
 
 /* ═════════ Alerts widget (Super Chat, members, Kick subs/follows, highlights) — reuses the egg alert card ═════════ */
 .ow-alerts .egg-hero { align-items: center; }
-.ow-alerts .egg-himg.oc-avatar { border-radius: 50%; padding: 0; overflow: hidden; width: 4.2em; height: 4.2em; box-shadow: 0 0 0 3px var(--rc), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); }
+.ow-root.alert-layout-icon-top .egg-hero,
+.ow-root.alert-layout-text-top .egg-hero,
+.ow-root.alert-layout-icon-top .egg-event,
+.ow-root.alert-layout-text-top .egg-event { flex-direction: column; text-align: center; align-items: center; gap: .6em; }
+.ow-root.alert-layout-icon-top .egg-hkicker,
+.ow-root.alert-layout-text-top .egg-hkicker,
+.ow-root.alert-layout-icon-top .egg-hmeta,
+.ow-root.alert-layout-text-top .egg-hmeta,
+.ow-root.alert-layout-icon-top .egg-hwhen,
+.ow-root.alert-layout-text-top .egg-hwhen,
+.ow-root.alert-layout-icon-top .egg-evtop,
+.ow-root.alert-layout-text-top .egg-evtop,
+.ow-root.alert-layout-icon-top .egg-evsub,
+.ow-root.alert-layout-text-top .egg-evsub { justify-content: center; flex-wrap: wrap; }
+.ow-root.alert-layout-icon-top .oc-amsg,
+.ow-root.alert-layout-text-top .oc-amsg { text-align: center; }
+.ow-root.alert-layout-icon-top .oc-count,
+.ow-root.alert-layout-text-top .oc-count,
+.ow-root.alert-layout-icon-top .egg-hlive,
+.ow-root.alert-layout-text-top .egg-hlive,
+.ow-root.alert-layout-icon-top .egg-evbadge,
+.ow-root.alert-layout-text-top .egg-evbadge { margin-left: 0; align-self: center; }
+.ow-root.alert-nobg .egg-alert > * { background: none !important; border: 0 !important; box-shadow: none !important; }
+.ow-root.alert-nobg .egg-hero::before { display: none; }
+.ow-root.alert-nobg .egg-himg,
+.ow-root.alert-nobg .egg-evicon { background: none !important; }
+.ow-root.alert-nobg .egg-htitle,
+.ow-root.alert-nobg .egg-hmeta,
+.ow-root.alert-nobg .egg-hwhen,
+.ow-root.alert-nobg .egg-evname,
+.ow-root.alert-nobg .egg-evsub,
+.ow-root.alert-nobg .egg-evnote,
+.ow-root.alert-nobg .oc-amsg,
+.ow-root.alert-nobg .egg-hkicker { text-shadow: 0 2px 8px rgba(0,0,0,.9), 0 0 3px rgba(0,0,0,.95); }
+.ow-eggs .egg-alert .egg-himg.has-img { width: calc(5.2em * var(--alert-icon, 1)); height: calc(5.2em * var(--alert-icon, 1)); }
+.ow-eggs .egg-alert .egg-evicon.has-img { width: calc(4.2em * var(--alert-icon, 1)); height: calc(4.2em * var(--alert-icon, 1)); }
+.ow-alerts .egg-himg.oc-avatar { border-radius: 50%; padding: 0; overflow: hidden; width: calc(4.2em * var(--alert-icon, 1)); height: calc(4.2em * var(--alert-icon, 1)); box-shadow: 0 0 0 3px var(--rc), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); }
 .ow-alerts .egg-himg.oc-avatar img { object-fit: cover; filter: none; }
 .ow-alerts .egg-himg:not(.has-img) { font-size: 2.2em; width: 1.9em; height: 1.9em; }
 .ow-alerts .egg-hkicker { gap: .45em; }
@@ -598,7 +634,7 @@
 
 .oc-count { margin-left: auto; padding: .25em .6em; border-radius: 999px; background: color-mix(in srgb, var(--rc) 22%, transparent); color: var(--rc); font-size: .9em; letter-spacing: .04em; white-space: nowrap; }
 .oc-count + .oc-count { margin-left: .3em; }
-.ow-alerts .egg-himg.oc-custom { width: 5em; height: 5em; padding: 0; background: none; }
+.ow-alerts .egg-himg.oc-custom { width: calc(5em * var(--alert-icon, 1)); height: calc(5em * var(--alert-icon, 1)); padding: 0; background: none; }
 .ow-alerts .egg-himg.oc-custom img { object-fit: contain; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--rc) 50%, transparent)); }
 .alert-big.ow-alerts .oc-count { margin-left: 0; }
 

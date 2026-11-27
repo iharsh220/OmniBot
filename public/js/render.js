@@ -574,7 +574,9 @@ export class EggsView {
         body.append(sec);
       }
     }
-    card.append(eventIcon(ev, 'egg-evicon'), body);
+    const icon = eventIcon(ev, 'egg-evicon');
+    if (this.s.alertLayout === 'text-top') card.append(body, icon);
+    else card.append(icon, body);
     if (active) card.append(el('span', 'egg-evbadge', `ACTIVE · ${left(ev.endsAt - Date.now())} left`));
     else if (isNew) card.append(el('span', 'egg-evbadge', 'NEW'));
     return card;
@@ -604,7 +606,9 @@ export class EggsView {
     meta.append(...this.details(e));
     const body = el('div', 'egg-hbody');
     body.append(kicker, el('div', 'egg-htitle', e.name), meta, when);
-    card.append(eggIcon(e, 'egg-himg'), body);
+    const icon = eggIcon(e, 'egg-himg');
+    if (this.s.alertLayout === 'text-top') card.append(body, icon);
+    else card.append(icon, body);
     return card;
   }
   setSeen(list, redraw = true) { this.lastSeen = Array.isArray(list) ? list : []; if (redraw) this.render(); }
