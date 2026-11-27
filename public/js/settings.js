@@ -3,12 +3,19 @@
 // Alert types that each get their own text, sound, custom sound URL and custom picture/GIF.
 // [settings key part, default text, default sound]. Text variables: {name} {amount} {event} {count} {platform}.
 export const ALERT_KINDS = [
-  ['Superchat', 'Super Chat · {amount}', 'coin'],
+  // YouTube
+  ['YtSub', 'Subscribed!', 'chime'],
   ['Member', '{event}', 'fanfare'],
+  ['Superchat', 'Super Chat · {amount}', 'coin'],
+  ['Sticker', 'Super Sticker · {amount}', 'sparkle'],
+  ['Jewels', 'Jewels Gift · {amount}', 'magic'],
   ['Gift', '{event}', 'sparkle'],
-  ['KickSub', '{event}', 'levelup'],
-  ['Follow', 'New follower', 'pop'],
   ['Greeting', '👋 Said hi', 'chime'],
+  // Kick
+  ['KickSub', '{event}', 'levelup'],
+  ['Kicks', 'Kicks · {amount}', 'cash'],
+  ['Follow', 'New follower', 'pop'],
+  // General
   ['Highlight', '⭐ Highlight', 'bell'],
   ['Donation', 'Donation · {amount}', 'cash'],
 ];
@@ -79,11 +86,15 @@ export const DEFAULTS = {
   eggsEggLabel: '{rarity} egg spawned', // alert/hero kicker ({rarity} = Secret, Eternal …)
   eggsEventLabel: '⚡ EVENT', // tag on event alerts
   eggsFit: true,
-  // ── alerts widget (Super Chat, members, Kick subs/follows, highlights). Look/time reuse eggsAlertStyle/eggsAlertPos/eggsPopup ──
-  alertSuperchat: true, // Super Chats + Super Stickers
-  alertMember: true, // new members + member milestones
+  // ── alerts widget (YouTube, Kick, UPI donations, highlights). Look/time reuse eggsAlertStyle/eggsAlertPos/eggsPopup ──
+  alertYtSub: true, // YouTube subscribers (note: YouTube API does not push free subs live; works for tests)
+  alertSuperchat: true, // YouTube Super Chats
+  alertSticker: true, // YouTube Super Stickers
+  alertJewels: true, // YouTube Jewels Gifts
+  alertMember: true, // YouTube new members + member milestones
   alertGift: true, // gifted memberships (YouTube) / gifted subs (Kick)
-  alertKickSub: true, // Kick subs + resubs
+  alertKickSub: true, // Kick subscriptions + resubs
+  alertKicks: true, // Kick Kicks gifts
   alertFollow: true, // Kick follows
   alertGreeting: true, // YouTube vertical-live "said hi"
   alertHighlight: true, // messages you highlight from the dashboard

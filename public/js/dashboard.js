@@ -162,13 +162,20 @@ const ANIM_OPTIONS = [
 const isAlert = (s) => current?.type === 'alerts' || s.eggsLayout === 'alert';
 // Alerts widget: one section per alert kind (on/off, text, sound, own sound URL, own picture, test)
 const KIND_INFO = {
-  Superchat: ['superchat', 'Super Chats & Stickers', 'YouTube'], Member: ['member', 'New members & milestones', 'YouTube'],
-  Gift: ['gift', 'Gifted memberships / subs', 'YouTube + Kick'], KickSub: ['sub', 'Subs & resubs', 'Kick'],
-  Follow: ['follow', 'New followers', 'Kick (YouTube does not report new subscribers live)'], Greeting: ['greeting', '“Said hi”', 'YouTube vertical live'],
-  Highlight: ['highlight', 'Highlighted messages', 'Live tools → Live chat → Show'],
-  Donation: ['donation', 'Donations (UPI)', 'Shows when you press Received on the Donations page'],
+  YtSub: ['ytsub', 'Subscribers', 'YouTube (test / preview — YouTube API does not report free subs live)', 'YouTube'],
+  Member: ['member', 'Members', 'YouTube · new members & milestones', 'YouTube'],
+  Superchat: ['superchat', 'Super Chats', 'YouTube', 'YouTube'],
+  Sticker: ['sticker', 'Super Stickers', 'YouTube', 'YouTube'],
+  Jewels: ['jewels', 'Jewels Gifts', 'YouTube vertical live gifts', 'YouTube'],
+  Gift: ['gift', 'Gifted memberships / subs', 'YouTube + Kick', 'YouTube'],
+  Greeting: ['greeting', '“Said hi”', 'YouTube vertical live', 'YouTube'],
+  KickSub: ['sub', 'Subscription', 'Kick · subs & resubs', 'Kick'],
+  Kicks: ['kicks', 'Kicks', 'Kick · gifted Kicks', 'Kick'],
+  Follow: ['follow', 'Followers', 'Kick', 'Kick'],
+  Highlight: ['highlight', 'Highlighted messages', 'Live tools → Live chat → Show', 'Other'],
+  Donation: ['donation', 'Donations (UPI)', 'Shows when you press Received on the Donations page', 'Other'],
 };
-const KIND_ICON = { Superchat: 'coin', Member: 'star', Gift: 'gift', KickSub: 'star', Follow: 'userplus', Greeting: 'hand', Highlight: 'star', Donation: 'rupee' };
+const KIND_ICON = { YtSub: 'userplus', Superchat: 'coin', Sticker: 'sparkles', Jewels: 'gift', Member: 'star', Gift: 'gift', KickSub: 'star', Kicks: 'zap', Follow: 'userplus', Greeting: 'hand', Highlight: 'star', Donation: 'rupee' };
 const SOUND_OPTIONS = [['default', 'Default for this alert'], ['chime', 'Chime'], ['coin', 'Coin'], ['cash', 'Cash register'], ['fanfare', 'Fanfare'], ['tada', 'Ta-da'],
   ['pop', 'Pop'], ['bubble', 'Bubbles'], ['sparkle', 'Sparkle'], ['magic', 'Magic'], ['bell', 'Bell'], ['notify', 'Notify'], ['levelup', 'Level up'], ['powerup', 'Power up'],
   ['airhorn', 'Air horn'], ['drumroll', 'Drum roll'], ['laser', 'Laser'], ['heartbeat', 'Heartbeat'], ['whoosh', 'Whoosh'], ['custom', 'My own sound (upload)'], ['none', 'No sound']];
@@ -451,10 +458,12 @@ function control(f) {
       return h('div', { class: 'seg full', role: 'group', 'aria-label': f.label }, f.options.map(([val, label]) =>
         h('button', { type: 'button', class: val === v ? 'on' : '', onclick: () => set(f.k, val, { rebuild: true }) }, label)));
     case 'kindpick': {
-      const sel = h('select', { class: 'select', 'aria-label': f.label }, ALERT_KINDS.map(([K]) => {
-        const off = settings[`alert${K}`] === false;
-        return h('option', { value: K, selected: K === editKind ? true : undefined }, `${KIND_INFO[K][1]}${off ? '  (off)' : ''}`);
-      }));
+      const groups = ['YouTube', 'Kick', 'Other'];
+      const sel = h('select', { class: 'select', 'aria-label': f.label }, groups.map((grp) =>
+        h('optgroup', { label: grp }, ALERT_KINDS.filter(([K]) => KIND_INFO[K][3] === grp).map(([K]) => {
+          const off = settings[`alert${K}`] === false;
+          return h('option', { value: K, selected: K === editKind ? true : undefined }, `${KIND_INFO[K][1]}${off ? '  (off)' : ''}`);
+        }))));
       sel.addEventListener('change', () => { editKind = sel.value; const t = $('#test-kind'); if (t) t.value = typeOfKind(editKind); renderConfig(); });
       return h('div', { class: 'kindpick' }, h('span', { class: 'kind-ic', html: icon(KIND_ICON[editKind] || 'bell') }), sel);
     }
@@ -734,7 +743,7 @@ async function loadDonatePreview() { try { const r = await api('/api/tools/donat
 pollView.preview = true;
 let alertDemo = null;
 // Studio: test one alert kind in the preview (with its sound), optionally also in OBS
-const TEST_BUTTONS = [['superchat', 'Super Chat'], ['member', 'New member'], ['gift', 'Gift'], ['sub', 'Kick sub'], ['follow', 'Follow'], ['greeting', 'Said hi'], ['highlight', 'Highlight'], ['donation', 'Donation']];
+const TEST_BUTTONS = [['ytsub', 'YT Sub'], ['member', 'YT Member'], ['superchat', 'Super Chat'], ['sticker', 'Super Sticker'], ['jewels', 'Jewels Gift'], ['sub', 'Kick Sub'], ['kicks', 'Kicks'], ['follow', 'Kick Follow'], ['donation', 'Donation']];
 function testAlert(type) {
   alertDemo?.stop(); alertDemo = null; // stop the automatic demo so the test stays visible
   alertsView.test(type);

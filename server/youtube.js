@@ -46,6 +46,9 @@ function normalise(item) {
     case 'membershipGiftingEvent': return { ...base, kind: 'member', alert: 'gift', eventText: `Gifted ${s.membershipGiftingDetails?.giftMembershipsCount ?? ''} memberships` };
     case 'giftMembershipReceivedEvent': return null;
     default:
+      if (/jewel/i.test(String(s.type || '')) || /jewel/i.test(String(s.displayMessage || ''))) {
+        return { ...base, kind: 'superchat', alert: 'jewels', eventText: 'Jewels Gift 💎', parts: text(s.displayMessage) };
+      }
       if (isSaidHi(s.displayMessage) || /said hi/i.test(String(s.type || ''))) return { ...base, kind: 'greeting', alert: 'greeting', eventText: '👋 said hi', greeting: true };
       return s.displayMessage ? { ...base, parts: text(s.displayMessage) } : null;
   }

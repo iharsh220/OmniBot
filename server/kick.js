@@ -70,6 +70,9 @@ export async function kickStep(ctx, acc) {
         await api(ctx.uid, '/events/subscriptions', { method: 'POST', app: true, body: { method: 'webhook', broadcaster_user_id: bid, events: missing.map((name) => ({ name, version: 1 })) } });
         L('info', `Kick webhooks subscribed: ${missing.join(', ')}`);
       }
+      if (!have.has('kicks.gifted')) {
+        await api(ctx.uid, '/events/subscriptions', { method: 'POST', app: true, body: { method: 'webhook', broadcaster_user_id: bid, events: [{ name: 'kicks.gifted', version: 1 }] } }).catch(() => {});
+      }
       Object.assign(st, { chatConnected: true, chatMode: 'webhook' });
     } catch (e) {
       st._nextWebhookCheckAt = now + 10 * 60_000;
@@ -170,6 +173,18 @@ export async function webhookToEvents(type, payload, messageId) {
       // also an event, so the Alerts widget (and chat, if "events" are shown) can say "new follower"
       out.chats.push({ id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'follow', alert: 'follow', author: { ...who(payload.follower), badges: [] }, parts: [], eventText: 'Followed!' });
       break;
+    case 'kicks.gifted': {
+      const amt = payload.gift?.amount;
+      const gname = payload.gift?.name;
+      out.chats.push({
+        id: `kick-wh-${messageId}`, platform: 'kick', ts: Date.now(), kind: 'superchat', alert: 'kicks',
+        amount: amt ? `${amt} Kicks` : undefined,
+        author: { ...who(payload.sender), badges: [] },
+        parts: payload.message ? parseKickContent(payload.message) : [],
+        eventText: gname ? `Sent ${gname}` : 'Sent Kicks!',
+      });
+      break;
+    }
     case 'livestream.status.updated':
       out.statePatch = { live: !!payload.is_live, title: payload.title || null, _nextStatsAt: 0 };
       out.logs.push({ level: 'info', source: 'kick', message: payload.is_live ? `LIVE: "${payload.title || ''}"` : 'Stream ended' });

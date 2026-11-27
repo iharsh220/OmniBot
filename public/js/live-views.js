@@ -15,10 +15,10 @@ const fmtN = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US'));
 
 // ── Alerts ──
 // alert type → settings key part (ALERT_KINDS in settings.js) + colour + fallback icon
-const KIND_OF = { donation: 'Donation', superchat: 'Superchat', sticker: 'Superchat', member: 'Member', milestone: 'Member', gift: 'Gift', sub: 'KickSub', follow: 'Follow', greeting: 'Greeting', highlight: 'Highlight' };
-const COLOR = { donation: '#22c55e', superchat: '#ffb300', sticker: '#ff7aa8', member: '#2ecc71', milestone: '#2ecc71', gift: '#a855f7', sub: '#53fc18', follow: '#38bdf8', greeting: '#38bdf8', highlight: null };
-const ICON = { donation: '💸', superchat: '💰', sticker: '💖', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', follow: '💚', greeting: '👋', highlight: '⭐' };
-const DEFAULT_EVENT = { donation: 'Donation', superchat: 'Super Chat', sticker: 'Super Sticker', member: 'New member!', milestone: 'Member milestone', gift: 'Gift!', sub: 'Subscribed!', follow: 'Followed!', greeting: 'Said hi', highlight: 'Highlight' };
+const KIND_OF = { donation: 'Donation', ytsub: 'YtSub', superchat: 'Superchat', sticker: 'Sticker', jewels: 'Jewels', member: 'Member', milestone: 'Member', gift: 'Gift', sub: 'KickSub', kicks: 'Kicks', follow: 'Follow', greeting: 'Greeting', highlight: 'Highlight' };
+const COLOR = { donation: '#22c55e', ytsub: '#ff0033', superchat: '#ffb300', sticker: '#ff7aa8', jewels: '#a855f7', member: '#2ecc71', milestone: '#2ecc71', gift: '#a855f7', sub: '#53fc18', kicks: '#53fc18', follow: '#38bdf8', greeting: '#38bdf8', highlight: null };
+const ICON = { donation: '💸', ytsub: '🔔', superchat: '💰', sticker: '💖', jewels: '💎', member: '⭐', milestone: '🏅', gift: '🎁', sub: '💚', kicks: '⚡', follow: '💚', greeting: '👋', highlight: '⭐' };
+const DEFAULT_EVENT = { donation: 'Donation', ytsub: 'Subscribed!', superchat: 'Super Chat', sticker: 'Super Sticker', jewels: 'Jewels Gift', member: 'New member!', milestone: 'Member milestone', gift: 'Gift!', sub: 'Subscribed!', kicks: 'Sent Kicks!', follow: 'Followed!', greeting: 'Said hi', highlight: 'Highlight' };
 const DEFAULT_SOUND = Object.fromEntries(ALERT_KINDS.map(([k, , snd]) => [k, snd]));
 const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd']; const v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
 
@@ -113,10 +113,14 @@ export function sampleAlert(type) {
   const base = { id: `sample-${type}-${Date.now()}`, ts: Date.now(), platform: 'youtube', alert: type, n: Math.floor(Math.random() * 5) + 1, author: { name: 'PixelPanda', avatar: null }, parts: [] };
   const msg = (t) => [{ type: 'text', text: t }];
   return {
+    ytsub: { ...base, kind: 'sub', eventText: 'Subscribed!', author: { name: 'AaravPlays' } },
     superchat: { ...base, kind: 'superchat', amount: '₹500.00', parts: msg('Bhai op stream! Keep it up ❤️') },
+    sticker: { ...base, kind: 'superchat', amount: '₹150.00', eventText: 'Super Sticker' },
+    jewels: { ...base, kind: 'superchat', amount: '500 Jewels', eventText: 'Jewels Gift 💎', author: { name: 'RiyaYT' } },
     member: { ...base, kind: 'member', eventText: 'New member!' },
     gift: { ...base, kind: 'member', eventText: 'Gifted 5 memberships', author: { name: 'CaptainChai' } },
     sub: { ...base, kind: 'sub', platform: 'kick', eventText: 'Resubscribed (3 months)!', author: { name: 'TurboTaco' } },
+    kicks: { ...base, kind: 'superchat', platform: 'kick', amount: '500 Kicks', eventText: 'Sent Kicks!', author: { name: 'KickFan' }, parts: msg('GGs!') },
     follow: { ...base, kind: 'follow', platform: 'kick', eventText: 'Followed!', author: { name: 'ByteBandit' } },
     greeting: { ...base, kind: 'greeting', eventText: '👋 said hi', author: { name: 'Neha' } },
     highlight: { ...base, kind: 'highlight', author: { name: 'zara_streams' }, parts: msg('Can you show the Divine egg spot again?') },
